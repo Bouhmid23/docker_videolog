@@ -1,0 +1,35 @@
+{
+  "title": "Videolog POC",
+  "uid": "videolog-poc",
+  "schemaVersion": 36,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Events/s (telemetry)",
+      "gridPos": {"x":0,"y":0,"w":4,"h":4},
+      "targets": [{"expr": "rate(http_requests_total[1m])", "legendFormat": "req/s"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"}
+    },
+    {
+      "id": 2, "type": "stat", "title": "Redis Stream Lag",
+      "gridPos": {"x":4,"y":0,"w":4,"h":4},
+      "targets": [{"expr": "redis_stream_length{stream=\"telemetry:stream\"}", "legendFormat": "msgs"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [
+        {"color":"green","value":0},{"color":"yellow","value":100},{"color":"red","value":500}
+      ]}}}
+    },
+    {
+      "id": 3, "type": "stat", "title": "MongoDB docs total",
+      "gridPos": {"x":8,"y":0,"w":4,"h":4},
+      "targets": [{"expr": "mongodb_collections_total", "legendFormat": "collections"}]
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Telemetry throughput",
+      "gridPos": {"x":0,"y":4,"w":12,"h":8},
+      "targets": [
+        {"expr": "rate(http_requests_total[30s])", "legendFormat": "API req/s"},
+        {"expr": "redis_connected_clients", "legendFormat": "Redis clients"}
+      ]
+    }
+  ]
+}

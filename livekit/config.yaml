@@ -1,0 +1,30 @@
+port: 7880
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: false
+
+redis:
+  address: redis:6379
+
+keys:
+  devkey: secret
+
+logging:
+  level: info
+  pion_level: error
+
+development: true
+
+room:
+  auto_create: true
+  max_participants: 20
+  # Fermer la room automatiquement X secondes après que le dernier
+  # participant soit parti (déclenche room_finished webhook)
+  empty_timeout: 30
+
+webhook:
+  urls:
+    - http://egress-webhook:8088/webhook/livekit
+    - http://dashboard-api:8000/webhook/livekit
+  api_key: devkey

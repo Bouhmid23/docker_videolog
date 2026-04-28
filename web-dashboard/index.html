@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Videolog Sport — Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh;padding:20px}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid #21262d}
+    h1{font-size:18px;font-weight:600;color:#f0f6fc}
+    .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:500}
+    .live{background:#1a2e1a;color:#3fb950;border:1px solid #238636}
+    .offline{background:#2d1b1b;color:#f85149;border:1px solid #da3633}
+    .dot{width:8px;height:8px;border-radius:50%}
+    .pulse{animation:pulse 1.2s ease-in-out infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:14px;margin-bottom:12px}
+    .card-title{font-size:11px;font-weight:600;color:#8b949e;margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;justify-content:space-between}
+
+    /* Stats — 2 colonnes : coach | trainee */
+    .athlete-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+    .athlete-card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:14px}
+    .athlete-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+    .role-badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}
+    .role-coach{background:#1a2035;color:#58a6ff;border:1px solid #185FA5}
+    .role-trainee{background:#1a2e1a;color:#3fb950;border:1px solid #238636}
+    .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .metric{background:#0d1117;border-radius:8px;padding:10px;text-align:center;border:1px solid #21262d}
+    .metric-val{font-size:24px;font-weight:700;color:#f0f6fc;line-height:1}
+    .metric-lbl{font-size:10px;color:#6e7681;margin-top:3px}
+    .metric-unit{font-size:11px;color:#8b949e;font-weight:400}
+    .hr-val{color:#f85149}    /* FC rouge */
+    .spd-val{color:#3fb950}   /* Vitesse verte */
+    .cad-val{color:#e3b341}   /* Cadence ambre */
+
+    /* Pipeline compact */
+    .pipeline{display:flex;align-items:center;background:#161b22;border:1px solid #21262d;border-radius:10px;padding:10px 14px;overflow-x:auto;margin-bottom:12px;gap:0}
+    .pn{flex-shrink:0;text-align:center;min-width:90px}
+    .pi{width:34px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;margin:0 auto 4px;font-size:16px;border:1px solid #30363d}
+    .pn-name{font-size:10px;color:#8b949e}
+    .pn-st{font-size:10px;font-weight:500;margin-top:1px}
+    .ok{color:#3fb950}.warn{color:#e3b341}
+    .pa{color:#30363d;font-size:16px;padding:0 2px;flex-shrink:0;margin-bottom:16px}
+
+    /* Charts */
+    .charts-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+    canvas.mini{max-height:90px}
+
+    /* Room + Recording */
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+    .rec-btn{padding:5px 12px;border-radius:5px;border:none;cursor:pointer;font-size:11px;font-weight:500}
+    .btn-start{background:#238636;color:#fff}.btn-stop{background:#da3633;color:#fff}
+    .rec-btn:disabled{opacity:.4;cursor:default}.rec-btn:hover:not(:disabled){opacity:.85}
+    .rec-status{display:flex;align-items:center;gap:7px;padding:7px 10px;background:#0d1117;border-radius:5px;margin:7px 0;font-size:11px;font-family:monospace}
+    .recdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+    .recdot.idle{background:#444}.recdot.active{background:#f85149;animation:pulse 1s infinite}.recdot.ending{background:#e3b341}
+    .participant-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;background:#1c2128;border-radius:4px;margin:2px;font-size:11px}
+
+    /* Alerts */
+    .alert-item{display:flex;align-items:flex-start;gap:7px;padding:6px 8px;border-radius:5px;margin-bottom:4px;font-size:12px;line-height:1.4}
+    .alert-hr_max{background:#2d1f1f;border-left:3px solid #f85149}
+    .alert-hr_low{background:#1a2035;border-left:3px solid #58a6ff}
+    .alert-speed_max{background:#2a1f12;border-left:3px solid #e3b341}
+
+    /* GPS */
+    #gps-canvas{width:100%;height:140px}
+
+    /* Events table */
+    .evrow{display:grid;grid-template-columns:60px 100px 60px 60px 60px 1fr;gap:6px;padding:4px 8px;border-radius:3px;border-bottom:1px solid #21262d;font-size:11px;color:#8b949e}
+    .evrow:hover{background:#1c2128}.hi{color:#f0f6fc}
+
+    @media(max-width:900px){.athlete-grid,.two-col,.charts-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🏃 Videolog Sport</h1>
+    <div style="font-size:11px;color:#8b949e;margin-top:2px">Coach ↔ Trainee · GPS · FC · Cadence · Vitesse</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a href="player.html" style="font-size:11px;color:#58a6ff;text-decoration:none;padding:4px 10px;border:1px solid #21262d;border-radius:5px">🎬 Relecture</a>
+    <a href="http://localhost:8000/docs" target="_blank" style="font-size:11px;color:#8b949e;text-decoration:none;padding:4px 10px;border:1px solid #21262d;border-radius:5px">API</a>
+    <div id="live-badge" class="badge offline">
+      <div class="dot" id="live-dot" style="background:#f85149"></div>
+      <span id="live-text">Connexion...</span>
+    </div>
+  </div>
+</header>
+
+<!-- Stats Athletes : Coach | Trainee -->
+<div class="athlete-grid">
+  <div class="athlete-card">
+    <div class="athlete-header">
+      <span class="role-badge role-coach">🎓 Coach</span>
+      <span id="coach-name" style="font-size:12px;color:#8b949e">—</span>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="metric-val hr-val" id="c-hr">--</div><div class="metric-lbl">FC <span class="metric-unit">bpm</span></div></div>
+      <div class="metric"><div class="metric-val spd-val" id="c-speed">--</div><div class="metric-lbl">Vitesse <span class="metric-unit">km/h</span></div></div>
+      <div class="metric"><div class="metric-val cad-val" id="c-cad">--</div><div class="metric-lbl">Cadence <span class="metric-unit">rpm</span></div></div>
+    </div>
+  </div>
+  <div class="athlete-card">
+    <div class="athlete-header">
+      <span class="role-badge role-trainee">🏃 Trainee</span>
+      <span id="trainee-name" style="font-size:12px;color:#8b949e">—</span>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="metric-val hr-val" id="t-hr">--</div><div class="metric-lbl">FC <span class="metric-unit">bpm</span></div></div>
+      <div class="metric"><div class="metric-val spd-val" id="t-speed">--</div><div class="metric-lbl">Vitesse <span class="metric-unit">km/h</span></div></div>
+      <div class="metric"><div class="metric-val cad-val" id="t-cad">--</div><div class="metric-lbl">Cadence <span class="metric-unit">rpm</span></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Pipeline -->
+<div class="pipeline">
+  <div class="pn"><div class="pi" style="background:#1a2935">👥</div><div class="pn-name">Clients</div><div class="pn-st ok" id="ps-sim">…</div></div>
+  <div class="pa">→</div>
+  <div class="pn"><div class="pi" style="background:#1a2035">🔗</div><div class="pn-name">LiveKit</div><div class="pn-st ok" id="ps-lk">…</div></div>
+  <div class="pa">→</div>
+  <div class="pn"><div class="pi" style="background:#2a2010">🤖</div><div class="pn-name">Agent</div><div class="pn-st ok" id="ps-agent">…</div></div>
+  <div class="pa">→</div>
+  <div class="pn"><div class="pi" style="background:#1a2a1a">⚡</div><div class="pn-name">Redis</div><div class="pn-st ok" id="ps-redis">…</div></div>
+  <div class="pa">→</div>
+  <div class="pn"><div class="pi" style="background:#202030">✍️</div><div class="pn-name">Writer</div><div class="pn-st ok" id="ps-writer">…</div></div>
+  <div class="pa">→</div>
+  <div class="pn"><div class="pi" style="background:#1a2a1a">🍃</div><div class="pn-name">MongoDB</div><div class="pn-st ok" id="ps-mongo">…</div></div>
+  <div class="pa">→</div>
+  <div class="pn"><div class="pi" style="background:#1a2535">📦</div><div class="pn-name">MinIO</div><div class="pn-st ok" id="ps-minio">…</div></div>
+</div>
+
+<!-- Charts -->
+<div class="charts-grid">
+  <div class="card">
+    <div class="card-title">❤️ Fréquence cardiaque (bpm)<a href="http://localhost:8000/telemetry/export?room=poc-room" target="_blank" style="color:#58a6ff;text-decoration:none;font-weight:400">⬇ CSV</a></div>
+    <canvas id="ch-hr" class="mini"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-title">⚡ Vitesse (km/h)</div>
+    <canvas id="ch-speed" class="mini"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-title">🔄 Cadence (rpm)</div>
+    <canvas id="ch-cad" class="mini"></canvas>
+  </div>
+</div>
+
+<!-- Room + Recording -->
+<div class="two-col">
+  <div class="card">
+    <div class="card-title">👥 Room <span style="color:#58a6ff;font-family:monospace;font-weight:400">poc-room</span>
+      <span id="rec-auto-badge" style="display:none;background:#2d1f1f;color:#f85149;padding:1px 6px;border-radius:4px;font-size:10px">🔴 AUTO</span>
+    </div>
+    <div style="margin-bottom:8px;font-size:11px;color:#6e7681">
+      Enregistrement auto dès <b style="color:#f0f6fc">2 participants</b> · arrêt si &lt; 2 (délai 10s)
+    </div>
+    <div id="rc-participants" style="margin-bottom:8px;min-height:22px"><span style="color:#444;font-size:12px">Aucun participant</span></div>
+    <div id="rc-log" style="font-family:monospace;font-size:10px;color:#6e7681;max-height:60px;overflow-y:auto"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">🔴 Enregistrement Egress
+      <div style="display:flex;gap:5px">
+        <select style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;padding:3px 6px;font-size:10px" id="rec-layout"><option value="speaker">Speaker</option><option value="grid">Grid</option></select>
+        <button class="rec-btn btn-start" id="btn-start" onclick="startRec()">⏺ Start</button>
+        <button class="rec-btn btn-stop"  id="btn-stop"  onclick="stopRec()" disabled>⏹ Stop</button>
+      </div>
+    </div>
+    <div class="rec-status"><div class="recdot idle" id="recdot"></div><span id="rec-txt">Prêt</span><span style="margin-left:auto;font-family:monospace;color:#444" id="rec-timer"></span></div>
+    <div id="rec-files" style="font-size:11px;color:#444">Aucun fichier</div>
+  </div>
+</div>
+
+<!-- Alertes + GPS + Events -->
+<div style="display:grid;grid-template-columns:1fr 1fr 200px;gap:12px;margin-bottom:12px">
+  <div class="card">
+    <div class="card-title">📋 Télémétrie récente</div>
+    <div style="display:grid;grid-template-columns:60px 100px 60px 60px 60px 1fr;gap:6px;padding:3px 8px;font-size:9px;color:#6e7681;text-transform:uppercase;margin-bottom:2px">
+      <span>PTS</span><span>Participant</span><span>FC</span><span>Vitesse</span><span>Cadence</span><span>GPS</span>
+    </div>
+    <div id="events-list"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">🚨 Alertes sportives <span id="alert-badge" style="background:#2d1f1f;color:#f85149;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:400">0</span></div>
+    <div id="alerts-list"><div style="color:#444;font-size:12px">Aucune alerte</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">🗺️ Trajectoire GPS</div>
+    <canvas id="gps-canvas"></canvas>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:8000';
+const WH  = 'http://localhost:8088';
+let egressId = null, recStart = null, recTimer = null;
+let alertCount = 0;
+const roomLog = [];
+
+// Derniere valeur par role
+const last = { coach:{}, trainee:{} };
+
+// ── Charts ────────────────────────────────────────────────────────────────────
+const mkChart = (id, c1, c2) => new Chart(document.getElementById(id), {
+  type:'line',
+  data:{ labels:[], datasets:[
+    { data:[], borderColor:c1, backgroundColor:c1+'18', fill:true, borderWidth:1.5, pointRadius:0, tension:0.4 },
+    ...(c2?[{ data:[], borderColor:c2, backgroundColor:'transparent', borderWidth:1.5, pointRadius:0, tension:0.4, borderDash:[4,3] }]:[])
+  ]},
+  options:{ responsive:true, maintainAspectRatio:true, animation:false,
+    plugins:{ legend:{ display: c2?true:false, labels:{ color:'#8b949e', font:{size:10}, boxWidth:12, padding:8 } } },
+    scales:{ x:{display:false}, y:{ grid:{color:'#21262d'}, ticks:{color:'#8b949e',font:{size:10}} } } }
+});
+
+// HR chart: rouge trainee, bleu coach — labels pour distinguer
+const hrChart  = new Chart(document.getElementById('ch-hr'), {
+  type:'line',
+  data:{ labels:[], datasets:[
+    { label:'Trainee HR', data:[], borderColor:'#f85149', backgroundColor:'#f8514918', fill:true, borderWidth:1.5, pointRadius:0, tension:0.4 },
+    { label:'Coach HR',   data:[], borderColor:'#58a6ff', backgroundColor:'transparent', borderWidth:1.5, pointRadius:0, tension:0.4, borderDash:[4,3] },
+  ]},
+  options:{ responsive:true, maintainAspectRatio:true, animation:false,
+    plugins:{ legend:{ display:true, labels:{ color:'#8b949e', font:{size:10}, boxWidth:12, padding:8 } } },
+    scales:{ x:{display:false}, y:{ min:50, grid:{color:'#21262d'}, ticks:{color:'#8b949e',font:{size:10}} } } }
+});
+
+const spdChart = mkChart('ch-speed', '#3fb950', '#58a6ff');
+const cadChart = mkChart('ch-cad', '#e3b341', '#EF9F27');
+
+// Label dataset
+if (spdChart.data.datasets[1]) spdChart.data.datasets[1].label = 'Coach';
+spdChart.data.datasets[0].label = 'Trainee';
+if (cadChart.data.datasets[1]) cadChart.data.datasets[1].label = 'Coach';
+cadChart.data.datasets[0].label = 'Trainee';
+
+// GPS
+const gpsCanvas = document.getElementById('gps-canvas');
+const gpsCtx = gpsCanvas.getContext('2d');
+let gpsData = { coach:[], trainee:[] };
+
+function drawGps() {
+  const W = gpsCanvas.width  = gpsCanvas.clientWidth;
+  const H = gpsCanvas.height = gpsCanvas.clientHeight || 140;
+  gpsCtx.clearRect(0,0,W,H);
+  const all = [...gpsData.coach, ...gpsData.trainee];
+  if (!all.length) return;
+  const lats = all.map(d=>d.lat), lngs = all.map(d=>d.lng);
+  const minLat=Math.min(...lats), maxLat=Math.max(...lats)+.0001;
+  const minLng=Math.min(...lngs), maxLng=Math.max(...lngs)+.0001;
+  const px=(lng,lat)=>[ 10+((lng-minLng)/(maxLng-minLng))*(W-20), H-10-((lat-minLat)/(maxLat-minLat))*(H-20) ];
+  // Trainee — vert
+  if (gpsData.trainee.length > 1) {
+    gpsCtx.beginPath(); gpsCtx.strokeStyle='#238636'; gpsCtx.lineWidth=2;
+    gpsData.trainee.forEach((d,i)=>{ const [x,y]=px(d.lng,d.lat); i===0?gpsCtx.moveTo(x,y):gpsCtx.lineTo(x,y); });
+    gpsCtx.stroke();
+    const last = gpsData.trainee[gpsData.trainee.length-1];
+    const [x,y] = px(last.lng, last.lat);
+    gpsCtx.beginPath(); gpsCtx.arc(x,y,5,0,Math.PI*2); gpsCtx.fillStyle='#3fb950'; gpsCtx.fill();
+  }
+  // Coach — bleu
+  if (gpsData.coach.length > 1) {
+    gpsCtx.beginPath(); gpsCtx.strokeStyle='#185FA5'; gpsCtx.lineWidth=1.5; gpsCtx.setLineDash([4,3]);
+    gpsData.coach.forEach((d,i)=>{ const [x,y]=px(d.lng,d.lat); i===0?gpsCtx.moveTo(x,y):gpsCtx.lineTo(x,y); });
+    gpsCtx.stroke(); gpsCtx.setLineDash([]);
+    const last = gpsData.coach[gpsData.coach.length-1];
+    const [x,y] = px(last.lng, last.lat);
+    gpsCtx.beginPath(); gpsCtx.arc(x,y,4,0,Math.PI*2); gpsCtx.fillStyle='#58a6ff'; gpsCtx.fill();
+  }
+  // Légende
+  gpsCtx.font='10px sans-serif';
+  gpsCtx.fillStyle='#3fb950'; gpsCtx.fillRect(8,H-22,10,8); gpsCtx.fillStyle='#8b949e'; gpsCtx.fillText('Trainee',22,H-15);
+  gpsCtx.fillStyle='#58a6ff'; gpsCtx.fillRect(78,H-22,10,8); gpsCtx.fillStyle='#8b949e'; gpsCtx.fillText('Coach',92,H-15);
+}
+
+function pushChart(chart, label, traineeVal, coachVal) {
+  const MAX = 100;
+  chart.data.labels.push(label);
+  chart.data.datasets[0].data.push(traineeVal);
+  if (coachVal !== undefined && chart.data.datasets[1]) chart.data.datasets[1].data.push(coachVal);
+  if (chart.data.labels.length > MAX) {
+    chart.data.labels.shift();
+    chart.data.datasets.forEach(ds=>ds.data.shift());
+  }
+  chart.update('none');
+}
+
+// ── SSE ───────────────────────────────────────────────────────────────────────
+function connectSSE() {
+  const es = new EventSource(`${API}/events`);
+  es.addEventListener('ping', () => setLive(true));
+  es.addEventListener('telemetry', e => {
+    const d = JSON.parse(e.data);
+    const role = d.role || 'trainee';
+    // Mettre a jour les cartes athletes
+    if (role === 'coach') {
+      document.getElementById('c-hr').textContent    = d.heart_rate || '--';
+      document.getElementById('c-speed').textContent = (+d.speed).toFixed(1);
+      document.getElementById('c-cad').textContent   = d.cadence || '--';
+    } else {
+      document.getElementById('t-hr').textContent    = d.heart_rate || '--';
+      document.getElementById('t-speed').textContent = (+d.speed).toFixed(1);
+      document.getElementById('t-cad').textContent   = d.cadence || '--';
+    }
+    setLive(true);
+  });
+  es.addEventListener('alert', e => addAlert(JSON.parse(e.data)));
+  es.addEventListener('egress', e => {
+    const d = JSON.parse(e.data);
+    const isAuto = d.auto ? ' (auto)' : '';
+    if (d.type==='started' || d.event==='started') {
+      addLog(`🔴 Enregistrement démarré${isAuto}`, '#f85149');
+      document.getElementById('rec-auto-badge').style.display = d.auto ? 'inline' : 'none';
+      if (!egressId) setRecState('active', d.egress_id);
+    }
+    if (d.type==='ended' || d.event==='ended') { addLog(`✅ Enregistrement terminé`, '#3fb950'); setRecState('idle'); fetchRecFiles(); }
+    if (d.type==='auto_stopped') { addLog(`⏹ Arrêt auto (${d.reason})`, '#58a6ff'); setRecState('idle'); }
+  });
+  es.addEventListener('room', e => {
+    const d = JSON.parse(e.data);
+    if (d.type==='participant_joined') addLog(`👤 ${d.identity} rejoint (${d.count})`, '#3fb950');
+    if (d.type==='participant_left')   addLog(`👤 ${d.identity} parti (${d.count})`, '#e3b341');
+    fetchRoomState();
+  });
+  es.onerror = () => { setLive(false); setTimeout(connectSSE, 3000); };
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+async function pollStats() {
+  try {
+    const r = await fetch(`${API}/stats`);
+    if (!r.ok) { setLive(false); return; }
+    const d = await r.json();
+    setLive(true);
+    setPipe('ps-redis',  (d.stream_pending||0)+' msgs');
+    setPipe('ps-mongo',  (d.total_events||0)+' docs');
+    setPipe('ps-writer', 'OK');
+    setPipe('ps-lk',     'OK');
+    setPipe('ps-agent',  'OK');
+    setPipe('ps-minio',  'OK');
+    setPipe('ps-sim',    d.total_events > 0 ? 'Live' : 'Attente');
+  } catch { setLive(false); }
+}
+
+async function pollSeries() {
+  try {
+    const r = await fetch(`${API}/telemetry/series?limit=150`);
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.length) return;
+
+    // Separer coach et trainee
+    const coach   = data.filter(d=>d.role==='coach');
+    const trainee = data.filter(d=>d.role==='trainee');
+
+    // Labels communs (pts_ms du trainee ou coach selon dispo)
+    const all = data.sort((a,b)=>a.pts_ms-b.pts_ms);
+    const labels = all.map(d=>(d.pts_ms/1000).toFixed(1));
+
+    // Reconstruire tous les charts depuis la serie complete
+    hrChart.data.labels = labels;
+    hrChart.data.datasets[0].data = all.map(d=>d.role==='trainee'?d.heart_rate:null);
+    hrChart.data.datasets[1].data = all.map(d=>d.role==='coach'?d.heart_rate:null);
+    hrChart.update('none');
+
+    spdChart.data.labels = labels;
+    spdChart.data.datasets[0].data = all.map(d=>d.role==='trainee'?d.speed:null);
+    spdChart.data.datasets[1].data = all.map(d=>d.role==='coach'?d.speed:null);
+    spdChart.update('none');
+
+    cadChart.data.labels = labels;
+    cadChart.data.datasets[0].data = all.map(d=>d.role==='trainee'?d.cadence:null);
+    cadChart.data.datasets[1].data = all.map(d=>d.role==='coach'?d.cadence:null);
+    cadChart.update('none');
+
+    // GPS par role
+    gpsData.trainee = trainee.map(d=>({lat:d.lat,lng:d.lng}));
+    gpsData.coach   = coach.map(d=>({lat:d.lat,lng:d.lng}));
+    drawGps();
+
+    // Mise a jour cartes athletes avec la derniere valeur
+    const lastTrainee = trainee[trainee.length-1];
+    const lastCoach   = coach[coach.length-1];
+    if (lastTrainee) {
+      document.getElementById('t-hr').textContent    = lastTrainee.heart_rate;
+      document.getElementById('t-speed').textContent = lastTrainee.speed.toFixed(1);
+      document.getElementById('t-cad').textContent   = lastTrainee.cadence;
+      document.getElementById('trainee-name').textContent = trainee[0]?.participant || '—';
+    }
+    if (lastCoach) {
+      document.getElementById('c-hr').textContent    = lastCoach.heart_rate;
+      document.getElementById('c-speed').textContent = lastCoach.speed.toFixed(1);
+      document.getElementById('c-cad').textContent   = lastCoach.cadence;
+      document.getElementById('coach-name').textContent = coach[0]?.participant || '—';
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function pollEvents() {
+  try {
+    const r = await fetch(`${API}/telemetry/latest?limit=10`);
+    if (!r.ok) return;
+    const data = await r.json();
+    document.getElementById('events-list').innerHTML = data.map(d=>{
+      const t=d.telemetry||{}, g=t.gps||{};
+      const roleColor = t.role==='coach'?'#58a6ff':'#3fb950';
+      return `<div class="evrow">
+        <span class="hi">${(d.pts_ms/1000).toFixed(1)}s</span>
+        <span style="color:${roleColor}">${d.participant||'—'}</span>
+        <span class="hi" style="color:#f85149">${t.heart_rate||'—'}</span>
+        <span>${(t.speed||0).toFixed(1)}</span>
+        <span style="color:#e3b341">${t.cadence||'—'}</span>
+        <span style="font-size:10px">${(g.lat||0).toFixed(4)},${(g.lng||0).toFixed(4)}</span>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
+async function pollAlerts() {
+  try {
+    const r = await fetch(`${API}/alerts?limit=8`);
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.length) return;
+    document.getElementById('alerts-list').innerHTML = data.map(alertHTML).join('');
+    document.getElementById('alert-badge').textContent = data.length;
+  } catch {}
+}
+
+function alertHTML(d) {
+  const icons = { hr_max:'💓', hr_low:'💙', speed_max:'⚡' };
+  return `<div class="alert-item alert-${d.type}">
+    <span>${icons[d.type]||'⚠️'}</span>
+    <div>
+      <div style="font-weight:500;font-size:12px">${d.message||d.type}</div>
+      <div style="color:#8b949e;font-size:10px">${d.participant} · ${(d.pts_ms/1000).toFixed(1)}s</div>
+    </div>
+  </div>`;
+}
+
+function addAlert(d) {
+  const list = document.getElementById('alerts-list');
+  list.insertAdjacentHTML('afterbegin', alertHTML(d));
+  alertCount++;
+  document.getElementById('alert-badge').textContent = alertCount;
+}
+
+async function fetchRoomState() {
+  try {
+    const r = await fetch(`${WH}/rooms/poc-room`);
+    if (!r.ok) return;
+    const d = await r.json();
+    const names = (d.participants||[]).filter(p=>!['telemetry-agent','egress'].includes(p));
+    document.getElementById('rc-participants').innerHTML = names.length === 0
+      ? '<span style="color:#444;font-size:12px">Aucun participant — en attente de 2 pour démarrer</span>'
+      : names.map(p=>`<span class="participant-chip"><span style="width:6px;height:6px;background:#3fb950;border-radius:50%"></span>${p}</span>`).join('');
+    // Badge auto
+    if (d.recording) {
+      document.getElementById('rec-auto-badge').style.display = 'inline';
+    }
+  } catch {}
+}
+
+// ── Recording (manuel) ────────────────────────────────────────────────────────
+async function startRec() {
+  const layout = document.getElementById('rec-layout').value;
+  try {
+    const r = await fetch(`${API}/recordings/start?room_name=poc-room&layout=${layout}`, {method:'POST'});
+    const d = await r.json();
+    if (d.error) { alert('Erreur: '+d.error); return; }
+    setRecState('active', d.egress_id);
+    addLog('▶ Enregistrement manuel démarré', '#3fb950');
+  } catch(e) { alert('Erreur: '+e); }
+}
+
+async function stopRec() {
+  if (!egressId) return;
+  setRecState('ending');
+  try { await fetch(`${API}/recordings/stop?egress_id=${egressId}`, {method:'POST'}); } catch {}
+  setRecState('idle');
+  await fetchRecFiles();
+  addLog('⏹ Enregistrement manuel arrêté', '#58a6ff');
+}
+
+function setRecState(s, eid) {
+  const dot=document.getElementById('recdot'), txt=document.getElementById('rec-txt');
+  const bStart=document.getElementById('btn-start'), bStop=document.getElementById('btn-stop');
+  dot.className = 'recdot '+s;
+  if (s==='active') {
+    egressId=eid; txt.textContent='En cours...';
+    bStart.disabled=true; bStop.disabled=false;
+    recStart=Date.now();
+    recTimer=setInterval(()=>{
+      const s=Math.floor((Date.now()-recStart)/1000);
+      document.getElementById('rec-timer').textContent=
+        Math.floor(s/60).toString().padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+    },1000);
+  } else if (s==='ending') {
+    txt.textContent='Finalisation...'; bStart.disabled=true; bStop.disabled=true;
+    clearInterval(recTimer);
+  } else {
+    txt.textContent='Prêt'; bStart.disabled=false; bStop.disabled=true;
+    clearInterval(recTimer); egressId=null;
+    document.getElementById('rec-timer').textContent='';
+    document.getElementById('rec-auto-badge').style.display='none';
+  }
+}
+
+async function fetchRecFiles() {
+  try {
+    const r = await fetch(`${API}/recordings/files`);
+    const files = await r.json();
+    const el = document.getElementById('rec-files');
+    if (!files.length || files.error) { el.textContent='Aucun fichier'; return; }
+    el.innerHTML = files.map(f=>`
+      <div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #21262d;font-size:11px">
+        <span style="color:#58a6ff;font-family:monospace;font-size:10px">${f.key.split('/').pop()}</span>
+        <span style="color:#8b949e">${f.size_mb}MB</span>
+        <a href="${f.url}" target="_blank" style="color:#3fb950;font-size:10px">⬇</a>
+      </div>`).join('');
+  } catch {}
+}
+
+function addLog(msg, color='#8b949e') {
+  const ts=new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  roomLog.unshift(`<span style="color:#444">${ts}</span> <span style="color:${color}">${msg}</span>`);
+  if(roomLog.length>15) roomLog.pop();
+  document.getElementById('rc-log').innerHTML = roomLog.join('<br>');
+}
+
+function setLive(v) {
+  document.getElementById('live-badge').className='badge '+(v?'live':'offline');
+  document.getElementById('live-dot').style.background = v?'#3fb950':'#f85149';
+  document.getElementById('live-dot').className = 'dot'+(v?' pulse':'');
+  document.getElementById('live-text').textContent = v?'LIVE':'Hors ligne';
+}
+
+function setPipe(id, txt) {
+  const el=document.getElementById(id);
+  if(el){ el.textContent=txt; el.className='pn-st ok'; }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+connectSSE();
+addLog('Dashboard démarré', '#3fb950');
+pollStats(); pollSeries(); pollEvents(); pollAlerts(); fetchRoomState(); fetchRecFiles();
+setInterval(pollStats, 5000);
+setInterval(pollSeries, 2000);
+setInterval(pollEvents, 2000);
+setInterval(pollAlerts, 10000);
+setInterval(fetchRoomState, 2000);
+setInterval(fetchRecFiles, 15000);
+</script>
+</body>
+</html>

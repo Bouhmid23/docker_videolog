@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Videolog - Relecture</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d1117; color: #c9d1d9; min-height: 100vh; padding: 20px;
+    }
+    header {
+      display: flex; align-items: center; gap: 16px; margin-bottom: 24px;
+      padding-bottom: 16px; border-bottom: 1px solid #21262d;
+    }
+    .back { color: #58a6ff; text-decoration: none; font-size: 14px; }
+    .back:hover { text-decoration: underline; }
+    h1 { font-size: 18px; font-weight: 600; color: #f0f6fc; }
+
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+    .player-card {
+      background: #161b22; border: 1px solid #21262d; border-radius: 10px;
+      overflow: hidden;
+    }
+    .player-card video {
+      width: 100%; display: block; background: #000;
+      max-height: 420px; object-fit: contain;
+    }
+    .player-controls {
+      padding: 14px 16px 16px; display: flex; align-items: center; gap: 10px;
+      border-top: 1px solid #21262d;
+    }
+    .player-meta {
+      display: flex; flex-direction: column; gap: 4px; min-width: 0;
+    }
+    .player-subtle { font-size: 11px; color: #6e7681; }
+    .pts-display {
+      font-family: monospace; font-size: 13px; color: #8b949e;
+      margin-left: auto; min-width: 80px; text-align: right;
+      padding: 6px 8px; border-radius: 999px; background: #0d1117; border: 1px solid #21262d;
+    }
+
+    .sidebar { display: flex; flex-direction: column; gap: 14px; }
+    .card {
+      background: #161b22; border: 1px solid #21262d; border-radius: 10px;
+      padding: 14px;
+    }
+    .card-title {
+      font-size: 12px; font-weight: 600; color: #f0f6fc;
+      margin-bottom: 10px; text-transform: uppercase; letter-spacing: .04em;
+    }
+
+    .telemetry-card { padding-bottom: 10px; }
+    .gauges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .gauge {
+      background: linear-gradient(180deg, #0d1117, #11161d); border-radius: 8px; padding: 12px 10px;
+      text-align: center; border: 1px solid #21262d; min-height: 86px;
+      display: flex; flex-direction: column; justify-content: center;
+    }
+    .gauge-val { font-size: 28px; font-weight: 700; color: #f0f6fc; line-height: 1; }
+    .gauge-lbl { font-size: 11px; color: #6e7681; margin-top: 6px; }
+    .gauge-unit { font-size: 12px; color: #8b949e; font-weight: 400; }
+
+    canvas.mini { max-height: 90px; }
+
+    .rec-list { display: flex; flex-direction: column; gap: 6px; }
+    .rec-item {
+      padding: 10px 12px; border-radius: 6px; border: 1px solid #21262d;
+      cursor: pointer; transition: border-color .15s, background .15s;
+    }
+    .rec-item:hover { border-color: #58a6ff; background: #1c2128; }
+    .rec-item.active { border-color: #238636; background: #1a2e1a; }
+    .rec-item-name {
+      font-size: 12px; font-family: monospace; color: #58a6ff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .rec-item-meta { font-size: 11px; color: #6e7681; margin-top: 3px; }
+    .rec-item-status {
+      font-size: 10px; font-weight: 500; padding: 2px 6px;
+      border-radius: 4px; display: inline-block; margin-top: 4px;
+    }
+    .status-complete { background: #1a2e1a; color: #3fb950; }
+    .status-active   { background: #2d1f1f; color: #f85149; }
+    .status-other    { background: #21262d; color: #8b949e; }
+
+    #map {
+      width: 100%; height: 260px; border-radius: 8px;
+      border: 1px solid #21262d; overflow: hidden;
+    }
+    #map .leaflet-container,
+    #map.leaflet-container {
+      background:
+        linear-gradient(180deg, rgba(56, 139, 253, 0.08), rgba(13, 17, 23, 0.15)),
+        repeating-linear-gradient(
+          0deg,
+          rgba(110, 118, 129, 0.14) 0,
+          rgba(110, 118, 129, 0.14) 1px,
+          transparent 1px,
+          transparent 32px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          rgba(110, 118, 129, 0.14) 0,
+          rgba(110, 118, 129, 0.14) 1px,
+          transparent 1px,
+          transparent 32px
+        ),
+        #0d1117;
+    }
+    .map-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at 35% 35%, #f0f6fc, #58a6ff 55%, #1f6feb 100%);
+      border: 2px solid rgba(240, 246, 252, 0.95);
+      box-shadow: 0 0 0 4px rgba(88, 166, 255, 0.18);
+      font-size: 14px;
+      line-height: 1;
+    }
+    .map-card { padding: 12px; }
+    .map-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      margin-bottom: 10px;
+    }
+    .map-status { font-size: 11px; color: #6e7681; min-height: 16px; }
+
+    .timeline-wrap { padding: 0 16px 14px; }
+    .timeline-bar {
+      width: 100%; height: 5px; background: #21262d; border-radius: 3px;
+      position: relative; cursor: pointer;
+    }
+    .timeline-progress {
+      height: 100%; border-radius: 3px; background: #238636;
+      width: 0%; transition: width .2s linear; pointer-events: none;
+    }
+    .timeline-events { position: relative; height: 12px; margin-top: 4px; }
+    .tl-tick {
+      position: absolute; width: 2px; height: 8px; background: #e3b341;
+      border-radius: 1px; top: 0; transform: translateX(-50%);
+    }
+    .tl-tick:hover::after {
+      content: attr(title); position: absolute; bottom: 12px; left: 50%;
+      transform: translateX(-50%); background: #21262d; color: #c9d1d9;
+      font-size: 10px; padding: 2px 5px; border-radius: 3px; white-space: nowrap; z-index: 10;
+    }
+
+    .no-video {
+      aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;
+      background: #0d1117; color: #444; font-size: 14px; flex-direction: column; gap: 8px;
+    }
+    .no-video .icon { font-size: 40px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="index.html">← Dashboard</a>
+  <h1>Relecture des sessions</h1>
+  <span id="sync-badge" style="font-size:11px;color:#3fb950;margin-left:auto;display:none">
+    Telemetrie synchronisee
+  </span>
+</header>
+
+<div class="layout">
+  <div>
+    <div class="player-card">
+      <div class="no-video" id="no-video-placeholder">
+        <div class="icon">🎥</div>
+        <div>Selectionner un enregistrement</div>
+        <div style="font-size:12px;color:#333">Les fichiers MP4 apparaissent apres arret de l'Egress</div>
+      </div>
+      <video id="player" controls style="display:none"
+             ontimeupdate="onTimeUpdate()"
+             onloadedmetadata="onVideoLoaded()">
+      </video>
+      <div class="timeline-wrap">
+        <div class="timeline-bar" onclick="seekTimeline(event)" id="tl-bar">
+          <div class="timeline-progress" id="tl-progress"></div>
+        </div>
+        <div class="timeline-events" id="tl-events"></div>
+      </div>
+      <div class="player-controls">
+        <div class="player-meta">
+          <span style="font-size:12px;color:#6e7681" id="player-info">Aucun fichier charge</span>
+          <span class="player-subtle">Lecture synchronisee avec la telemetrie</span>
+        </div>
+        <span class="pts-display" id="pts-display">0.0s</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-title">Vitesse synchronisee avec la video</div>
+      <canvas id="chart-speed-sync" class="mini"></canvas>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="card telemetry-card">
+      <div class="card-title">Telemetrie au temps courant</div>
+      <div class="gauges">
+        <div class="gauge">
+          <div class="gauge-val" id="g-speed">--</div>
+          <div class="gauge-lbl">Vitesse <span class="gauge-unit">km/h</span></div>
+        </div>
+        <div class="gauge">
+          <div class="gauge-val" id="g-hrm">--</div>
+          <div class="gauge-lbl">HRM <span class="gauge-unit">bpm</span></div>
+        </div>
+        <div class="gauge">
+          <div class="gauge-val" id="g-cad">--</div>
+          <div class="gauge-lbl">Cadence <span class="gauge-unit">rpm</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card map-card">
+      <div class="map-head">
+        <div class="card-title" style="margin-bottom:0">Carte GPS</div>
+        <div class="map-status" id="map-status">En attente de coordonnees GPS</div>
+      </div>
+      <div id="map"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Enregistrements disponibles</div>
+      <div class="rec-list" id="rec-list">
+        <div style="color:#444;font-size:12px">Chargement...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:8000';
+
+let telemetryData = [];
+let currentPts = 0;
+let videoDuration = 0;
+let activeRec = null;
+let ptsOffset = 0;
+let mapInstance = null;
+let mapPath = null;
+let mapMarker = null;
+let mapTiles = null;
+let mapUsingTiles = false;
+
+const speedSyncChart = new Chart(document.getElementById('chart-speed-sync'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      {
+        data: [],
+        borderColor: '#3fb950',
+        backgroundColor: 'rgba(63,185,80,.08)',
+        fill: true,
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.4,
+        label: 'Speed'
+      },
+      {
+        data: [],
+        borderColor: '#f85149',
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        borderDash: [3, 3],
+        pointRadius: 0,
+        label: 'Position',
+        yAxisID: 'cursor'
+      },
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: true,
+    animation: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { display: false },
+      y: { grid: { color: '#21262d' }, ticks: { color: '#8b949e', font: { size: 10 } } },
+      cursor: { display: false, min: 0, max: 1 }
+    }
+  }
+});
+
+function normalizeTelemetryPoint(point) {
+  const lat = Number(point.lat ?? point.latitude);
+  const lng = Number(point.lng ?? point.longitude ?? point.lon);
+  const cadence = Number(point.cadence ?? point.rpm);
+  const hrm = Number(point.hrm ?? point.heart_rate);
+  return { ...point, lat, lng, cadence, hrm };
+}
+
+function hasValidCoords(point) {
+  return Number.isFinite(point.lat) && Number.isFinite(point.lng);
+}
+
+function ensureMap() {
+  if (mapInstance) return mapInstance;
+
+  mapInstance = L.map('map', {
+    zoomControl: false,
+    attributionControl: false
+  }).setView([48.8566, 2.3522], 12);
+
+  mapTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    crossOrigin: true
+  });
+
+  mapTiles.on('load', () => {
+    mapUsingTiles = true;
+    if (telemetryData.length) {
+      updateMapStatus(`${telemetryData.filter(hasValidCoords).length} points GPS charges - carte Leaflet`);
+    }
+  });
+
+  mapTiles.on('tileerror', () => {
+    if (!mapUsingTiles) {
+      updateMapStatus('Fond de carte indisponible - suivi GPS conserve');
+    }
+  });
+
+  mapTiles.addTo(mapInstance);
+
+  return mapInstance;
+}
+
+function updateMapStatus(message) {
+  document.getElementById('map-status').textContent = message;
+}
+
+function initMapTrack(data) {
+  const map = ensureMap();
+  const gpsPoints = data.filter(hasValidCoords);
+
+  if (mapPath) {
+    map.removeLayer(mapPath);
+    mapPath = null;
+  }
+  if (mapMarker) {
+    map.removeLayer(mapMarker);
+    mapMarker = null;
+  }
+
+  if (!gpsPoints.length) {
+    updateMapStatus('Aucune coordonnee exploitable dans cette session');
+    setTimeout(() => map.invalidateSize(), 0);
+    return;
+  }
+
+  const latLngs = gpsPoints.map((d) => [d.lat, d.lng]);
+  mapPath = L.polyline(latLngs, {
+    color: '#3fb950',
+    weight: 3,
+    opacity: 0.85
+  }).addTo(map);
+
+  mapMarker = L.marker(latLngs[0], {
+    icon: L.divIcon({
+      className: '',
+      html: '<div class="map-avatar">🚴</div>',
+      iconSize: [28, 28],
+      iconAnchor: [14, 14]
+    })
+  }).addTo(map);
+
+  map.fitBounds(mapPath.getBounds(), { padding: [18, 18] });
+  setTimeout(() => map.invalidateSize(), 0);
+  updateMapStatus(`${gpsPoints.length} points GPS charges - carte Leaflet`);
+}
+
+function updateMapPosition(point) {
+  if (!mapMarker || !hasValidCoords(point)) return;
+  mapMarker.setLatLng([point.lat, point.lng]);
+}
+
+function findTelemetryAtPts(ptsMs) {
+  if (!telemetryData.length) return null;
+  let lo = 0;
+  let hi = telemetryData.length - 1;
+
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (telemetryData[mid].pts_ms < ptsMs) lo = mid + 1;
+    else hi = mid;
+  }
+
+  return { data: telemetryData[lo], idx: lo };
+}
+
+function onTimeUpdate() {
+  const video = document.getElementById('player');
+  const ptsMs = video.currentTime * 1000 + ptsOffset;
+  currentPts = ptsMs;
+
+  document.getElementById('pts-display').textContent = video.currentTime.toFixed(1) + 's';
+
+  if (videoDuration > 0) {
+    const pct = (video.currentTime / videoDuration) * 100;
+    document.getElementById('tl-progress').style.width = pct + '%';
+  }
+
+  const result = findTelemetryAtPts(ptsMs);
+  if (!result) return;
+
+  const { data, idx } = result;
+  document.getElementById('g-speed').textContent = data.speed?.toFixed(0) ?? '--';
+  document.getElementById('g-hrm').textContent = Number.isFinite(data.hrm) ? data.hrm.toFixed(0) : '--';
+  document.getElementById('g-cad').textContent = Number.isFinite(data.cadence) ? data.cadence.toFixed(0) : '--';
+
+  updateMapPosition(data);
+
+  if (telemetryData.length > 0) {
+    speedSyncChart.data.datasets[1].data = [];
+    speedSyncChart.update('none');
+  }
+}
+
+function onVideoLoaded() {
+  const video = document.getElementById('player');
+  videoDuration = video.duration;
+  document.getElementById('tl-progress').style.width = '0%';
+  buildTimelineTicks();
+}
+
+function seekTimeline(e) {
+  const bar = document.getElementById('tl-bar');
+  const rect = bar.getBoundingClientRect();
+  const pct = (e.clientX - rect.left) / rect.width;
+  const video = document.getElementById('player');
+  if (video.readyState >= 1) {
+    video.currentTime = pct * video.duration;
+  }
+}
+
+function buildTimelineTicks() {
+  const container = document.getElementById('tl-events');
+  container.innerHTML = '';
+  if (!telemetryData.length || !videoDuration) return;
+
+  telemetryData.forEach((d, i) => {
+    if (i > 0 && d.gear !== telemetryData[i - 1].gear) {
+      const pct = ((d.pts_ms - ptsOffset) / (videoDuration * 1000)) * 100;
+      const tick = document.createElement('div');
+      tick.className = 'tl-tick';
+      tick.style.left = pct + '%';
+      tick.title = `Passage en rapport ${d.gear}`;
+      container.appendChild(tick);
+    }
+  });
+}
+
+async function loadRecording(rec) {
+  activeRec = rec;
+
+  document.querySelectorAll('.rec-item').forEach((el) => el.classList.remove('active'));
+  const activeEl = document.querySelector(`[data-id="${rec.egress_id}"]`);
+  if (activeEl) activeEl.classList.add('active');
+
+  await loadTelemetry(rec.room_name);
+
+  if (rec.started_at && telemetryData.length) {
+    const egressStartMs = new Date(rec.started_at).getTime();
+    const firstPtsMs = telemetryData[0].pts_ms;
+    ptsOffset = firstPtsMs - egressStartMs;
+    console.info(`[sync] ptsOffset=${ptsOffset}ms egressStart=${rec.started_at} firstPts=${firstPtsMs}`);
+  } else {
+    ptsOffset = 0;
+  }
+
+  const file = rec.files?.[0];
+  if (file) {
+    const video = document.getElementById('player');
+    const placeholder = document.getElementById('no-video-placeholder');
+
+    video.src = file.minio_url || file.url || '';
+    video.style.display = 'block';
+    placeholder.style.display = 'none';
+
+    document.getElementById('player-info').textContent =
+      `${file.filename || 'recording.mp4'} (${file.size_mb || '?'} MB · ${file.duration_s || '?'}s)`;
+
+    document.getElementById('sync-badge').style.display = 'inline';
+  } else {
+    document.getElementById('player-info').textContent = 'Fichier en cours de traitement...';
+  }
+}
+
+async function loadTelemetry(roomName) {
+  try {
+    const response = await fetch(`${API}/telemetry/series?room=${roomName}&limit=500`);
+    const data = await response.json();
+    telemetryData = Array.isArray(data) ? data.map(normalizeTelemetryPoint) : [];
+
+    if (!telemetryData.length) {
+      speedSyncChart.data.labels = [];
+      speedSyncChart.data.datasets[0].data = [];
+      speedSyncChart.update('none');
+      initMapTrack([]);
+      updateMapStatus('Aucune telemetrie trouvee');
+      return;
+    }
+
+    speedSyncChart.data.labels = telemetryData.map((d) => (d.pts_ms / 1000).toFixed(1));
+    speedSyncChart.data.datasets[0].data = telemetryData.map((d) => d.speed);
+    speedSyncChart.update('none');
+
+    initMapTrack(telemetryData);
+    buildTimelineTicks();
+  } catch (e) {
+    console.error('Erreur chargement telemetrie:', e);
+    updateMapStatus('Erreur de chargement de la carte GPS');
+  }
+}
+
+async function loadRecordingList() {
+  const list = document.getElementById('rec-list');
+  try {
+    const response = await fetch(`${API}/recordings?limit=20`);
+    const recordings = await response.json();
+
+    if (!Array.isArray(recordings) || !recordings.length) {
+      list.innerHTML = '<div style="color:#444;font-size:12px">Aucun enregistrement. Lance une session depuis le dashboard.</div>';
+      return;
+    }
+
+    list.innerHTML = recordings.map((rec) => {
+      const statusClass = rec.status === 'completed' ? 'status-complete'
+        : rec.status === 'recording' ? 'status-active'
+        : 'status-other';
+      const statusLabel = rec.status || '?';
+      const date = rec.started_at ? rec.started_at.slice(0, 16).replace('T', ' ') : '';
+      const dur = rec.duration_s ? `${Math.round(rec.duration_s)}s` : '';
+      const name = rec.files?.[0]?.filename || rec.egress_id || 'recording';
+
+      return `<div class="rec-item" data-id="${rec.egress_id}" onclick='loadRecording(${JSON.stringify(rec).replace(/'/g, '&#39;')})'>
+        <div class="rec-item-name">${name}</div>
+        <div class="rec-item-meta">${date} ${dur ? '· ' + dur : ''}</div>
+        <span class="rec-item-status ${statusClass}">${statusLabel}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<div style="color:#f85149;font-size:12px">Erreur chargement recordings: ${e.message}</div>`;
+  }
+}
+
+loadRecordingList();
+setInterval(loadRecordingList, 15000);
+</script>
+</body>
+</html>

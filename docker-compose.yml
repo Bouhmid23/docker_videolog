@@ -1,0 +1,466 @@
+# ============================================================
+#  VIDEOLOG POC — Full Stack
+#  Charger les variables depuis .env (copier .env.example → .env)
+# ============================================================
+
+networks:
+  videolog:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  minio_data:
+  redis_data:
+  egress_tmp:
+  grafana_data:
+  prometheus_data:
+
+services:
+
+  # ----------------------------------------------------------
+  # 1. LIVEKIT SERVER
+  # ----------------------------------------------------------
+  livekit:
+    image: livekit/livekit-server:v1.7.2
+    container_name: vl-livekit
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    volumes:
+      - ./livekit/config.yaml:/etc/livekit.yaml
+    command: --config /etc/livekit.yaml --dev
+    networks:
+      - videolog
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7880/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # ----------------------------------------------------------
+  # 2. REDIS
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7.2-alpine
+    container_name: vl-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --save ""
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --aof-use-rdb-preamble no
+    networks:
+      - videolog
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 300m
+
+  # ----------------------------------------------------------
+  # 3. MONGODB
+  # ----------------------------------------------------------
+  mongo:
+    image: mongo:7.0
+    container_name: vl-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo-writer/init.js:/docker-entrypoint-initdb.d/init.js
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-videolog}
+    networks:
+      - videolog
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # ----------------------------------------------------------
+  # 4. MINIO
+  # ----------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    container_name: vl-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-videolog}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-videolog123}
+    command: server /data --console-address ":9001"
+    networks:
+      - videolog
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: vl-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-videolog} ${MINIO_ROOT_PASSWORD:-videolog123} &&
+        mc mb --ignore-existing local/recordings &&
+        mc mb --ignore-existing local/segments &&
+        mc anonymous set download local/recordings &&
+        mc anonymous set download local/segments &&
+        echo 'Buckets ready'
+      "
+    networks:
+      - videolog
+
+  # ----------------------------------------------------------
+  # 5. LIVEKIT EGRESS
+  # ----------------------------------------------------------
+  egress:
+    image: livekit/egress:v1.8.4
+    container_name: vl-egress
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./egress/config.yaml:/etc/egress.yaml
+      - egress_tmp:/tmp/egress
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+    depends_on:
+      livekit:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - videolog
+    ipc: host
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - SYS_ADMIN
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  egress-ctl:
+    build:
+      context: ./egress
+      dockerfile: Dockerfile
+    container_name: vl-egress-ctl
+    profiles:
+      - tools
+    environment:
+      LIVEKIT_URL: http://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-videolog}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-videolog123}
+    depends_on:
+      - livekit
+      - egress
+    networks:
+      - videolog
+
+  # ----------------------------------------------------------
+  # 5c. EGRESS WEBHOOK
+  # ----------------------------------------------------------
+  egress-webhook:
+    build:
+      context: ./egress
+      dockerfile: Dockerfile.webhook
+    container_name: vl-egress-webhook
+    ports:
+      - "8088:8088"
+    environment:
+      MONGO_URL: mongodb://mongo:27017/videolog
+      REDIS_URL: redis://redis:6379
+      LIVEKIT_URL: http://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      STOP_GRACE_DELAY: ${STOP_GRACE_DELAY:-10}
+      RECORD_MIN_PARTICIPANTS: ${RECORD_MIN_PARTICIPANTS:-2}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-videolog}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-videolog123}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_healthy
+    networks:
+      - videolog
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # 7. TELEMETRY AGENT
+  # ----------------------------------------------------------
+  telemetry-agent:
+    build:
+      context: ./telemetry-agent
+      dockerfile: Dockerfile
+    container_name: vl-telemetry-agent
+    environment:
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      REDIS_URL: redis://redis:6379
+      ROOM_NAME: ${VIDEOLOG_ROOM:-poc-room}
+      ALERT_HR_MAX: ${ALERT_HR_MAX:-185}
+      ALERT_HR_REST: ${ALERT_HR_REST:-50}
+      ALERT_SPEED_MAX: ${ALERT_SPEED_MAX:-40}
+    depends_on:
+      livekit:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - videolog
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # 8. MONGO WRITER
+  # ----------------------------------------------------------
+  mongo-writer:
+    build:
+      context: ./mongo-writer
+      dockerfile: Dockerfile
+    container_name: vl-mongo-writer
+    environment:
+      MONGO_URL: mongodb://mongo:27017/videolog
+      REDIS_URL: redis://redis:6379
+      BATCH_SIZE: "50"
+      FLUSH_INTERVAL: ${TELEMETRY_INTERVAL:-0.5}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - videolog
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # 9. MEDIA SIMULATOR  (profil: simulator)
+  # ----------------------------------------------------------
+  media-simulator:
+    build:
+      context: ./media-simulator
+      dockerfile: Dockerfile
+    container_name: vl-media-simulator
+    profiles:
+      - simulator
+    environment:
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-videolog}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-videolog123}
+      ROOM_NAME: ${VIDEOLOG_ROOM:-poc-room}
+      ALERT_HR_MAX: ${ALERT_HR_MAX:-185}
+      ALERT_HR_REST: ${ALERT_HR_REST:-50}
+      ALERT_SPEED_MAX: ${ALERT_SPEED_MAX:-40}
+      TELEMETRY_INTERVAL: ${TELEMETRY_INTERVAL:-0.5}
+      SCENARIO: ${SCENARIO:-run}
+      PARTICIPANT_ID: ${PARTICIPANT_ID:-trainee-01}
+      ROLE: ${ROLE:-trainee}
+    depends_on:
+      livekit:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - videolog
+    restart: unless-stopped
+
+
+  # ----------------------------------------------------------
+  # 9b. COACH SIMULATOR  (simule le coach — profil: simulator)
+  # ----------------------------------------------------------
+  coach-simulator:
+    build:
+      context: ./media-simulator
+      dockerfile: Dockerfile
+    container_name: vl-coach-simulator
+    profiles:
+      - simulator
+    environment:
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      ROOM_NAME: ${VIDEOLOG_ROOM:-poc-room}
+      TELEMETRY_INTERVAL: ${TELEMETRY_INTERVAL:-1.0}
+      SCENARIO: ${SCENARIO:-run}
+      PARTICIPANT_ID: coach-01
+      ROLE: coach
+    depends_on:
+      livekit:
+        condition: service_healthy
+    networks:
+      - videolog
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # 10. DASHBOARD WEB
+  # ----------------------------------------------------------
+  dashboard:
+    build:
+      context: ./web-dashboard
+      dockerfile: Dockerfile
+    container_name: vl-dashboard
+    ports:
+      - "3000:80"
+    depends_on:
+      - dashboard-api
+    networks:
+      - videolog
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 10s
+      retries: 3
+
+  # ----------------------------------------------------------
+  # 11. DASHBOARD API
+  # ----------------------------------------------------------
+  dashboard-api:
+    build:
+      context: ./mongo-writer
+      dockerfile: Dockerfile.api
+    container_name: vl-dashboard-api
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URL: mongodb://mongo:27017/videolog
+      REDIS_URL: redis://redis:6379
+      LIVEKIT_URL: http://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://10.0.2.2:7880}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-videolog}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-videolog123}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      livekit:
+        condition: service_healthy
+    networks:
+      - videolog
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # 12. PROMETHEUS  (profil: monitoring)
+  # ----------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: vl-prometheus
+    profiles:
+      - monitoring
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    networks:
+      - videolog
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # 13. GRAFANA  (profil: monitoring)
+  # ----------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: vl-grafana
+    profiles:
+      - monitoring
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/videolog-dashboard.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+      - ./monitoring/dashboard-provider.yml:/etc/grafana/provisioning/dashboards/provider.yml
+      - ./monitoring/videolog-dashboard.json:/etc/grafana/dashboards/videolog-dashboard.json
+    networks:
+      - videolog
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # 14. REDIS EXPORTER  (profil: monitoring)
+  # ----------------------------------------------------------
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.58.0
+    container_name: vl-redis-exporter
+    profiles:
+      - monitoring
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    networks:
+      - videolog
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # 15. MONGO EXPORTER  (profil: monitoring)
+  # ----------------------------------------------------------
+  mongo-exporter:
+    image: percona/mongodb_exporter:0.40
+    container_name: vl-mongo-exporter
+    profiles:
+      - monitoring
+    command: --mongodb.uri=mongodb://mongo:27017
+    networks:
+      - videolog
+    restart: unless-stopped
