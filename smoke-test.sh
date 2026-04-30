@@ -61,7 +61,7 @@ echo ""
 if $WAIT_MODE; then
   echo -e "${YELLOW}Mode attente activé (--wait)${NC}"
   wait_for "LiveKit"       "http://localhost:7880/"
-  wait_for "Dashboard API" "http://localhost:8000/health"
+  wait_for "Dashboard API" "http://localhost:8001/health"
   wait_for "Webhook"       "http://localhost:8088/health"
   wait_for "MinIO"         "http://localhost:9000/minio/health/live"
   echo ""
@@ -77,7 +77,7 @@ echo ""
 
 # ── Services applicatifs ────────────────────────────────────────
 echo -e "${BOLD}Services applicatifs${NC}"
-check_json "Dashboard API /health" "http://localhost:8000/health" "status"
+check_json "Dashboard API /health" "http://localhost:8001/health" "status"
 check_json "Egress Webhook /health" "http://localhost:8088/health" "status"
 check "Dashboard Web (nginx)" "curl -sf http://localhost:3000/"
 echo ""
@@ -101,12 +101,12 @@ echo ""
 # ── MinIO buckets ───────────────────────────────────────────────
 echo -e "${BOLD}Stockage MinIO${NC}"
 check "Bucket recordings" "docker exec vl-minio mc ls local/recordings/ &>/dev/null || docker exec vl-minio-init true 2>/dev/null"
-check "API /recordings/files" "curl -sf http://localhost:8000/recordings/files | grep -qE '\[|\{'"
+check "API /recordings/files" "curl -sf http://localhost:8001/recordings/files | grep -qE '\[|\{'"
 echo ""
 
 # ── Token endpoint ──────────────────────────────────────────────
 echo -e "${BOLD}Auth${NC}"
-check "Token endpoint LiveKit" "curl -sf -X POST http://localhost:8000/token -H 'Content-Type: application/json' -d '{\"identity\":\"smoketest\",\"room\":\"poc-room\"}' | grep -q token"
+check "Token endpoint LiveKit" "curl -sf -X POST http://localhost:8001/token -H 'Content-Type: application/json' -d '{\"identity\":\"smoketest\",\"room\":\"poc-room\"}' | grep -q token"
 echo ""
 
 # ── Egress ──────────────────────────────────────────────────────
@@ -135,7 +135,7 @@ else
   echo -e "${GREEN}✅ Tous les services sont opérationnels !${NC}"
   echo ""
   echo -e "  Dashboard  : ${CYAN}http://localhost:3000${NC}"
-  echo -e "  API docs   : ${CYAN}http://localhost:8000/docs${NC}"
+  echo -e "  API docs   : ${CYAN}http://localhost:8001/docs${NC}"
   echo -e "  MinIO      : ${CYAN}http://localhost:9001${NC}  (videolog / videolog123)"
   if docker ps --filter name=vl-grafana --format '{{.Names}}' 2>/dev/null | grep -q grafana; then
     echo -e "  Grafana    : ${CYAN}http://localhost:3001${NC}  (admin / admin)"

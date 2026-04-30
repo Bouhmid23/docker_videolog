@@ -324,7 +324,7 @@ async def start_recording(room_name: str, layout: str = "speaker"):
                     "2. Vérifier les logs Egress: docker logs vl-egress",
                     "3. Vérifier que Redis fonctionne: docker exec vl-redis redis-cli ping",
                     "4. En cas de corruption Redis: docker compose down && docker volume rm videolog-poc_redis_data && docker compose up --build",
-                    "5. Diagnostique: GET http://localhost:8000/egress/status"
+                    "5. Diagnostique: GET http://localhost:8001/egress/status"
                 ]
             }
         return {"error": err}
@@ -399,4 +399,4 @@ def _egress_status(code) -> str:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")

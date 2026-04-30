@@ -83,7 +83,7 @@
   </div>
   <div style="display:flex;gap:8px;align-items:center">
     <a href="player.html" style="font-size:11px;color:#58a6ff;text-decoration:none;padding:4px 10px;border:1px solid #21262d;border-radius:5px">🎬 Relecture</a>
-    <a href="http://localhost:8000/docs" target="_blank" style="font-size:11px;color:#8b949e;text-decoration:none;padding:4px 10px;border:1px solid #21262d;border-radius:5px">API</a>
+    <a href="http://localhost:8001/docs" target="_blank" style="font-size:11px;color:#8b949e;text-decoration:none;padding:4px 10px;border:1px solid #21262d;border-radius:5px">API</a>
     <div id="live-badge" class="badge offline">
       <div class="dot" id="live-dot" style="background:#f85149"></div>
       <span id="live-text">Connexion...</span>
@@ -137,7 +137,7 @@
 <!-- Charts -->
 <div class="charts-grid">
   <div class="card">
-    <div class="card-title">❤️ Fréquence cardiaque (bpm)<a href="http://localhost:8000/telemetry/export?room=poc-room" target="_blank" style="color:#58a6ff;text-decoration:none;font-weight:400">⬇ CSV</a></div>
+    <div class="card-title">❤️ Fréquence cardiaque (bpm)<a href="http://localhost:8001/telemetry/export?room=poc-room" target="_blank" style="color:#58a6ff;text-decoration:none;font-weight:400">⬇ CSV</a></div>
     <canvas id="ch-hr" class="mini"></canvas>
   </div>
   <div class="card">
@@ -195,7 +195,7 @@
 </div>
 
 <script>
-const API = 'http://localhost:8000';
+const API = 'http://localhost:8001';
 const WH  = 'http://localhost:8088';
 let egressId = null, recStart = null, recTimer = null;
 let alertCount = 0;

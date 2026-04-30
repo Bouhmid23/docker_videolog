@@ -32,6 +32,9 @@ services:
     command: --config /etc/livekit.yaml --dev
     networks:
       - videolog
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:7880/"]
       interval: 10s
@@ -359,7 +362,7 @@ services:
     networks:
       - videolog
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 10s
       retries: 3
 
@@ -372,7 +375,7 @@ services:
       dockerfile: Dockerfile.api
     container_name: vl-dashboard-api
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       MONGO_URL: mongodb://mongo:27017/videolog
       REDIS_URL: redis://redis:6379

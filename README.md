@@ -17,7 +17,7 @@
 
 - Docker >= 24
 - Docker Compose >= 2.20
-- Ports libres : 3000, 7880, 7881, 7882, 8000, 9000, 9001, 27017, 6379
+- Ports libres : 3000, 7880, 7881, 7882, 8001, 9000, 9001, 27017, 6379
 
 ## Démarrage rapide
 
@@ -40,7 +40,7 @@ docker compose logs -f
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | **Dashboard** | http://localhost:3000 | — |
-| **Dashboard API** | http://localhost:8000/docs | — |
+| **Dashboard API** | http://localhost:8001/docs | — |
 | **LiveKit** | http://localhost:7880 | — |
 | **MinIO Console** | http://localhost:9001 | videolog / videolog123 |
 | **MongoDB** | mongodb://localhost:27017 | — |
@@ -153,22 +153,22 @@ docker compose run --rm --profile tools egress-ctl watch poc-room
 ### Via l'API REST
 ```bash
 # Démarrer
-curl -X POST "http://localhost:8000/recordings/start?room_name=poc-room&layout=speaker"
+curl -X POST "http://localhost:8001/recordings/start?room_name=poc-room&layout=speaker"
 
 # Lister les actifs
-curl http://localhost:8000/recordings
+curl http://localhost:8001/recordings
 
 # Arrêter
-curl -X POST "http://localhost:8000/recordings/stop?egress_id=<id>"
+curl -X POST "http://localhost:8001/recordings/stop?egress_id=<id>"
 
 # Lister les fichiers MinIO
-curl http://localhost:8000/recordings/files
+curl http://localhost:8001/recordings/files
 ```
 
 ### Récupérer le fichier MP4
 1. MinIO Console → http://localhost:9001 (videolog / videolog123)
 2. Bucket `recordings` → naviguer dans `poc-room/<timestamp>/recording.mp4`
-3. Ou via l'API : `curl http://localhost:8000/recordings/files`
+3. Ou via l'API : `curl http://localhost:8001/recordings/files`
 
 ### Layouts disponibles
 | Layout | Description |
