@@ -1,5 +1,3 @@
-api_key: devkey
-api_secret: secret
 ws_url: ws://livekit:7880
 
 # Redis OBLIGATOIRE — Egress s'enregistre ici, LiveKit le découvre via Redis
@@ -13,13 +11,4 @@ tmp_dir: /tmp/egress
 health_port: 8080
 
 logging:
-  level: debug
-
-# S3 Configuration
-s3:
-  endpoint: http://minio:9000
-  access_key: videolog
-  secret: videolog123
-  region: us-east-1
-  bucket: recordings
-  force_path_style: true
+  level: info

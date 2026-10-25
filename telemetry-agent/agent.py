@@ -1,154 +1,281 @@
 """
-Telemetry Agent — Videolog POC (Sport Coach)
-Rejoins la room LiveKit, ecoute les DataTracks topic="telemetry",
-enrichit avec PTS, publie dans Redis Streams.
+Telemetry Agent - Videolog POC (Sport Coach)
+Connects to one or more LiveKit rooms, listens for DataTracks topic="telemetry",
+enriches events with PTS, and publishes them to Redis Streams.
 
-Champs attendus dans le payload:
-  role        — "coach" | "trainee"
-  speed       — km/h
-  heart_rate  — bpm
-  cadence     — rpm
-  gps         — {lat, lng, altitude}
+Configuration:
+  ROOM_NAME=poc-room                 # backward compatible single-room mode
+  ROOM_NAMES=room-a,room-b,room-c    # multi-room mode
 """
-import asyncio, json, os, time, logging
-from datetime import datetime, UTC
+import asyncio
+import base64
+import json
+import logging
+import os
+import struct
+import time
+from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
-from livekit import rtc, api
+from livekit import api, rtc
 
-logging.basicConfig(level=logging.INFO,
-    format="%(asctime)s [AGENT] %(levelname)s %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [AGENT] %(levelname)s %(message)s",
+)
 log = logging.getLogger(__name__)
 
 LIVEKIT_URL = os.environ["LIVEKIT_URL"]
-API_KEY     = os.environ["LIVEKIT_API_KEY"]
-API_SECRET  = os.environ["LIVEKIT_API_SECRET"]
-REDIS_URL   = os.environ["REDIS_URL"]
-ROOM_NAME   = os.environ.get("ROOM_NAME", "poc-room")
-STREAM_KEY  = "telemetry:stream"
+API_KEY = os.environ["LIVEKIT_API_KEY"]
+API_SECRET = os.environ["LIVEKIT_API_SECRET"]
+REDIS_URL = os.environ["REDIS_URL"]
+ROOM_NAME = os.environ.get("ROOM_NAME", "poc-room")
+ROOM_NAMES = [
+    name.strip()
+    for name in os.environ.get("ROOM_NAMES", ROOM_NAME).split(",")
+    if name.strip()
+]
+STREAM_KEY = "telemetry:stream"
+PACKET_VERSION = 2
+PACKET_SIZE = 21
+UINT32_MODULUS = 1 << 32
 
-# Seuils d'alertes sportives
-ALERT_HR_MAX   = int(os.environ.get("ALERT_HR_MAX",   "185"))  # FC max
-ALERT_HR_REST  = int(os.environ.get("ALERT_HR_REST",  "50"))   # FC trop basse
-ALERT_SPEED_MAX = float(os.environ.get("ALERT_SPEED_MAX", "40"))  # km/h
+ALERT_HR_MAX = int(os.environ.get("ALERT_HR_MAX", "185"))
+ALERT_HR_REST = int(os.environ.get("ALERT_HR_REST", "50"))
+ALERT_SPEED_MAX = float(os.environ.get("ALERT_SPEED_MAX", "40"))
 
-redis_client:       aioredis.Redis = None
-session_start_unix: float          = None
-_participant_counts: dict          = {}
+redis_client: aioredis.Redis | None = None
+session_starts: dict[str, float] = {}
+participant_counts: dict[str, dict[str, int]] = {}
+
+
+def without_posture(value):
+    if isinstance(value, dict):
+        return {key: without_posture(item) for key, item in value.items()
+                if str(key).casefold() != "posture"}
+    if isinstance(value, list):
+        return [without_posture(item) for item in value]
+    return value
+
+
+def stream_value(value) -> str:
+    return "" if value is None else str(value)
 
 
 async def connect_redis():
     global redis_client
     redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
     await redis_client.ping()
-    log.info("✅ Redis connecte")
+    log.info("Redis connected")
 
 
 async def register_session(room_name: str):
-    global session_start_unix
     session_start_unix = time.time() * 1000
-    await redis_client.hset(f"session:{room_name}", mapping={
-        "room_name":  room_name,
-        "started_at": datetime.now(UTC).isoformat(),
-        "start_unix": session_start_unix,
-    })
-    log.info(f"📋 Session: {room_name}")
+    session_starts[room_name] = session_start_unix
+    await redis_client.hset(
+        f"session:{room_name}",
+        mapping={
+            "room_name": room_name,
+            "started_at": datetime.now(UTC).isoformat(),
+            "start_unix": session_start_unix,
+        },
+    )
+    log.info("Session registered: %s", room_name)
 
 
-def compute_pts(client_ts_ms: float) -> float:
+def compute_pts(room_name: str, client_ts_ms: float) -> float:
+    session_start_unix = session_starts.get(room_name)
     if session_start_unix is None:
         return 0.0
     return max(0.0, client_ts_ms - session_start_unix)
 
 
-async def on_data_received(packet: rtc.DataPacket):
-    # Filtrer par topic
+def decode_binary_packet(packet_bytes: bytes, received_ms: float) -> dict | None:
+    """Decode the mobile TelemetryCodec v2 packet (21 bytes, big-endian)."""
+    if len(packet_bytes) < PACKET_SIZE:
+        return None
+    try:
+        (version, role_code, speed_raw, hr_raw, cadence_raw, lat_raw,
+         lng_raw, altitude_raw, bearing_raw, timestamp_raw) = struct.unpack_from(
+            ">BBHBBiihBI", packet_bytes
+        )
+    except struct.error:
+        return None
+
+    if version != PACKET_VERSION:
+        return None
+    role = {0: "coach", 1: "trainee", 2: "observer"}.get(role_code)
+    if role is None:
+        return None
+
+    # The uint32 timestamp wraps roughly every 49.7 days. Expand it to the
+    # epoch value nearest the receive time so it remains comparable to Egress.
+    received_mod = int(received_ms) % UINT32_MODULUS
+    delta_ms = ((timestamp_raw - received_mod + UINT32_MODULUS // 2)
+                % UINT32_MODULUS) - UINT32_MODULUS // 2
+    capture_ts_ms = received_ms + delta_ms
+
+    return {
+        "role": role,
+        "speed": None if speed_raw == 65535 else speed_raw / 100.0,
+        "heart_rate": None if hr_raw == 255 else hr_raw,
+        "cadence": None if cadence_raw == 255 else cadence_raw,
+        "lat": None if lat_raw == 0x7FFFFFFF else lat_raw / 10_000_000.0,
+        "lng": None if lng_raw == 0x7FFFFFFF else lng_raw / 10_000_000.0,
+        "altitude": None if altitude_raw == 0x7FFF else altitude_raw / 100.0,
+        "bearing": None if bearing_raw == 255 else bearing_raw,
+        "capture_ts_ms": capture_ts_ms,
+    }
+
+
+async def on_data_received(room_name: str, packet: rtc.DataPacket):
     if getattr(packet, "topic", None) != "telemetry":
         return
 
+    identity = packet.participant.identity if packet.participant else "unknown"
+    server_ts = time.time() * 1000
+    packet_bytes = bytes(packet.data)
     try:
-        raw = json.loads(packet.data.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-        log.warning(f"Decode error: {e}")
+        raw = json.loads(packet_bytes.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # Preserve the mobile packet byte-for-byte (base64 is needed because
+        # Redis Streams with decode_responses=True only accept text fields).
+        raw = None
+
+    binary_telemetry = None
+    if raw is not None and not isinstance(raw, dict):
+        raw = None
+
+    if raw is None:
+        binary_telemetry = decode_binary_packet(packet_bytes, server_ts)
+    elif raw.get("type") != "telemetry":
         return
 
-    if raw.get("type") != "telemetry":
-        return
+    client_ts = (
+        raw.get("ts", server_ts) if raw is not None
+        else binary_telemetry["capture_ts_ms"] if binary_telemetry else server_ts
+    )
+    pts_ms = compute_pts(room_name, client_ts)
+    payload = raw.get("payload", {}) if raw is not None else (binary_telemetry or {})
+    if not isinstance(payload, dict):
+        payload = {}
+    payload = {key: value for key, value in payload.items() if key != "capture_ts_ms"}
+    # Posture is deliberately excluded from telemetry events and storage.
+    payload = without_posture(payload)
+    gps = payload.get("gps", {})
+    lat = payload.get("lat", gps.get("lat", 0))
+    lng = payload.get("lng", gps.get("lng", 0))
+    altitude = payload.get("altitude", gps.get("altitude", 0))
 
-    identity  = packet.participant.identity if packet.participant else "unknown"
-    client_ts = raw.get("ts", time.time() * 1000)
-    pts_ms    = compute_pts(client_ts)
-    payload   = raw.get("payload", {})
-    gps       = payload.get("gps", {})
-
-    _participant_counts[identity] = _participant_counts.get(identity, 0) + 1
+    room_counts = participant_counts.setdefault(room_name, {})
+    room_counts[identity] = room_counts.get(identity, 0) + 1
 
     event = {
-        "room_name":   ROOM_NAME,
+        "room_name": room_name,
         "participant": identity,
-        "ts":          str(client_ts),
-        "pts_ms":      str(pts_ms),
-        "server_ts":   str(time.time() * 1000),
-        # Champs sportifs
-        "role":        str(payload.get("role", "trainee")),
-        "speed":       str(payload.get("speed", 0)),
-        "heart_rate":  str(payload.get("heart_rate", 0)),
-        "cadence":     str(payload.get("cadence", 0)),
-        "lat":         str(gps.get("lat", 0)),
-        "lng":         str(gps.get("lng", 0)),
-        "altitude":    str(gps.get("altitude", 0)),
-        "raw":         json.dumps(payload),
+        "ts": str(client_ts),
+        "pts_ms": str(pts_ms),
+        "server_ts": str(server_ts),
+        "capture_ts": str(client_ts),
+        "role": str(payload.get("role", "trainee")),
+        "speed": stream_value(payload.get("speed", 0)),
+        "heart_rate": stream_value(payload.get("heart_rate", 0)),
+        "cadence": stream_value(payload.get("cadence", 0)),
+        "lat": stream_value(lat),
+        "lng": stream_value(lng),
+        "altitude": stream_value(altitude),
+        "raw": json.dumps(payload),
     }
+    if raw is None:
+        event.update({
+            "packet_encoding": "base64",
+            "packet_b64": base64.b64encode(packet_bytes).decode("ascii"),
+            "telemetry_decoded": "true" if binary_telemetry else "false",
+        })
 
-    await redis_client.xadd(STREAM_KEY, event)
+    await redis_client.xadd(STREAM_KEY, event, maxlen=100000, approximate=True)
+    if raw is not None or binary_telemetry:
+        await maybe_emit_alerts(room_name, identity, event, pts_ms, client_ts)
 
-    # ── Alertes sportives ────────────────────────────────────────────────────
-    hr    = int(float(event["heart_rate"]))
-    speed = float(event["speed"])
+    count = room_counts[identity]
+    if count % 20 == 0:
+        log.info(
+            "[%s] [%s] %s speed=%skm/h hr=%sbpm cadence=%srpm pts=%.0fms",
+            room_name,
+            event["role"],
+            identity,
+            event["speed"],
+            event["heart_rate"],
+            event["cadence"],
+            pts_ms,
+        )
+
+
+async def maybe_emit_alerts(room_name: str, identity: str, event: dict, pts_ms: float, client_ts: float):
+    hr = int(float(event["heart_rate"])) if event["heart_rate"] else 0
+    speed = float(event["speed"]) if event["speed"] else 0
 
     if hr > ALERT_HR_MAX:
-        await _emit_alert(identity, pts_ms, client_ts, "hr_max",
-                          hr, f"FC {hr}bpm > seuil {ALERT_HR_MAX}bpm")
-    elif hr < ALERT_HR_REST and hr > 0:
-        await _emit_alert(identity, pts_ms, client_ts, "hr_low",
-                          hr, f"FC {hr}bpm < seuil repos {ALERT_HR_REST}bpm")
+        await emit_alert(
+            room_name,
+            identity,
+            pts_ms,
+            client_ts,
+            "hr_max",
+            hr,
+            f"FC {hr}bpm > seuil {ALERT_HR_MAX}bpm",
+        )
+    elif 0 < hr < ALERT_HR_REST:
+        await emit_alert(
+            room_name,
+            identity,
+            pts_ms,
+            client_ts,
+            "hr_low",
+            hr,
+            f"FC {hr}bpm < seuil repos {ALERT_HR_REST}bpm",
+        )
 
     if speed > ALERT_SPEED_MAX:
-        await _emit_alert(identity, pts_ms, client_ts, "speed_max",
-                          speed, f"Vitesse {speed}km/h > seuil {ALERT_SPEED_MAX}km/h")
+        await emit_alert(
+            room_name,
+            identity,
+            pts_ms,
+            client_ts,
+            "speed_max",
+            speed,
+            f"Vitesse {speed}km/h > seuil {ALERT_SPEED_MAX}km/h",
+        )
 
-    count = _participant_counts[identity]
-    if count % 20 == 0:
-        log.info(f"📡 [{event['role']:8}] {identity} "
-                 f"speed={speed}km/h hr={hr}bpm "
-                 f"cadence={event['cadence']}rpm "
-                 f"pts={pts_ms:.0f}ms")
 
-
-async def _emit_alert(identity, pts_ms, ts, alert_type, value, message):
+async def emit_alert(room_name: str, identity: str, pts_ms: float, ts: float, alert_type: str, value, message: str):
     alert = {
-        "room_name":   ROOM_NAME,
+        "room_name": room_name,
         "participant": identity,
-        "pts_ms":      str(pts_ms),
-        "type":        alert_type,
-        "value":       str(value),
-        "message":     message,
-        "ts":          str(ts),
+        "pts_ms": str(pts_ms),
+        "type": alert_type,
+        "value": str(value),
+        "message": message,
+        "ts": str(ts),
     }
-    await redis_client.xadd("telemetry:alerts", alert)
+    await redis_client.xadd("telemetry:alerts", alert, maxlen=10000, approximate=True)
     await redis_client.publish("alerts", json.dumps(alert))
-    log.warning(f"🚨 {alert_type.upper()} | {identity} | {message}")
+    log.warning("[%s] %s | %s | %s", room_name, alert_type.upper(), identity, message)
 
 
-async def connect_room() -> rtc.Room:
+async def connect_room(room_name: str) -> rtc.Room:
     token = (
         api.AccessToken(API_KEY, API_SECRET)
         .with_identity("telemetry-agent")
-        .with_name("Telemetry Agent")
-        .with_grants(api.VideoGrants(
-            room_join=True, room=ROOM_NAME,
-            can_subscribe=True, can_publish=False,
-        ))
+        .with_name(f"Telemetry Agent ({room_name})")
+        .with_grants(
+            api.VideoGrants(
+                room_join=True,
+                room=room_name,
+                can_subscribe=True,
+                can_publish=False,
+            )
+        )
         .to_jwt()
     )
 
@@ -156,50 +283,57 @@ async def connect_room() -> rtc.Room:
 
     @room.on("data_received")
     def _on_data(packet: rtc.DataPacket):
-        asyncio.create_task(on_data_received(packet))
+        asyncio.create_task(on_data_received(room_name, packet))
 
     @room.on("participant_connected")
     def _on_join(p: rtc.RemoteParticipant):
-        log.info(f"👤 Connecte: {p.identity}")
+        log.info("[%s] Participant connected: %s", room_name, p.identity)
 
     @room.on("participant_disconnected")
     def _on_left(p: rtc.RemoteParticipant):
-        log.info(f"👤 Deconnecte: {p.identity}")
-        _participant_counts.pop(p.identity, None)
+        log.info("[%s] Participant disconnected: %s", room_name, p.identity)
+        participant_counts.setdefault(room_name, {}).pop(p.identity, None)
 
     await room.connect(LIVEKIT_URL, token)
-    log.info(f"✅ Agent connecte a '{ROOM_NAME}'")
+    log.info("Agent connected to room '%s'", room_name)
     return room
 
 
-async def main():
-    await connect_redis()
-    await register_session(ROOM_NAME)
+async def run_room(room_name: str):
+    await register_session(room_name)
 
     backoff = 1
     while True:
         room = None
         try:
-            room = await connect_room()
+            room = await connect_room(room_name)
             backoff = 1
             disconnected = asyncio.Event()
 
             @room.on("disconnected")
             def _on_disc(reason):
-                log.warning(f"Deconnecte: {reason}")
+                log.warning("[%s] Disconnected: %s", room_name, reason)
                 disconnected.set()
 
             await disconnected.wait()
         except Exception as e:
-            log.error(f"Erreur connexion: {e}")
+            log.error("[%s] Connection error: %s", room_name, e)
         finally:
             if room:
-                try: await room.disconnect()
-                except Exception: pass
+                try:
+                    await room.disconnect()
+                except Exception:
+                    pass
 
-        log.info(f"Reconnexion dans {backoff}s...")
+        log.info("[%s] Reconnecting in %ss...", room_name, backoff)
         await asyncio.sleep(backoff)
         backoff = min(backoff * 2, 30)
+
+
+async def main():
+    await connect_redis()
+    log.info("Watching rooms: %s", ", ".join(ROOM_NAMES))
+    await asyncio.gather(*(run_room(room_name) for room_name in ROOM_NAMES))
 
 
 if __name__ == "__main__":

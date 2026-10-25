@@ -1,7 +1,5 @@
-videolog-poc/.env
 *.pyc
 __pycache__/
 .current_egress_id
 .env
-.env.example
 

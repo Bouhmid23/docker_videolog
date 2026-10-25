@@ -25,6 +25,25 @@ DLQ_TIMEOUT_MS = 30_000
 DLQ_STREAM     = "telemetry:dlq"
 
 
+def without_posture(value):
+    """Remove posture keys at every nesting level before persisting telemetry."""
+    if isinstance(value, dict):
+        return {key: without_posture(item) for key, item in value.items()
+                if str(key).casefold() != "posture"}
+    if isinstance(value, list):
+        return [without_posture(item) for item in value]
+    return value
+
+
+def number_or_none(value, cast=float, default=0):
+    if value is None or value == "":
+        return None
+    try:
+        return cast(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 async def ensure_groups(r: aioredis.Redis):
     for stream in (STREAM_KEY, ALERTS_STREAM):
         try:
@@ -38,27 +57,34 @@ def parse_telemetry(msg_id: str, data: dict) -> dict:
     payload = {}
     try: payload = json.loads(data.get("raw", "{}"))
     except json.JSONDecodeError: pass
-    return {
+    payload = without_posture(payload)
+    document = {
         "_id_redis":   msg_id,
         "room_name":   data.get("room_name", "unknown"),
         "participant": data.get("participant", "unknown"),
-        "ts":          float(data.get("ts", 0)),
-        "pts_ms":      float(data.get("pts_ms", 0)),
-        "server_ts":   float(data.get("server_ts", 0)),
+        "ts":          number_or_none(data.get("ts", 0)),
+        "capture_ts":  number_or_none(data.get("capture_ts", data.get("ts", 0))),
+        "pts_ms":      number_or_none(data.get("pts_ms", 0)),
+        "server_ts":   number_or_none(data.get("server_ts", 0)),
         "telemetry": {
             "role":        data.get("role", "trainee"),
-            "speed":       float(data.get("speed", 0)),
-            "heart_rate":  int(float(data.get("heart_rate", 0))),
-            "cadence":     int(float(data.get("cadence", 0))),
+            "speed":       number_or_none(data.get("speed", 0)),
+            "heart_rate":  number_or_none(data.get("heart_rate", 0), int),
+            "cadence":     number_or_none(data.get("cadence", 0), int),
             "gps": {
-                "lat":      float(data.get("lat", 0)),
-                "lng":      float(data.get("lng", 0)),
-                "altitude": float(data.get("altitude", 0)),
+                "lat":      number_or_none(data.get("lat", 0)),
+                "lng":      number_or_none(data.get("lng", 0)),
+                "altitude": number_or_none(data.get("altitude", 0)),
             },
             **payload,
         },
         "inserted_at": datetime.now(UTC),
     }
+    if data.get("packet_b64"):
+        document["packet_b64"] = data["packet_b64"]
+        document["packet_encoding"] = data.get("packet_encoding", "base64")
+        document["telemetry_decoded"] = data.get("telemetry_decoded") == "true"
+    return document
 
 
 def parse_alert(msg_id: str, data: dict) -> dict:
@@ -93,7 +119,8 @@ async def reclaim_pending(r: aioredis.Redis, col):
                 buf.append(parse_telemetry(msg_id, data))
                 acks.append(msg_id)
             except Exception as e:
-                await r.xadd(DLQ_STREAM, {"msg_id": msg_id, "error": str(e)})
+                await r.xadd(DLQ_STREAM, {"msg_id": msg_id, "error": str(e)},
+                             maxlen=10000, approximate=True)
                 await r.xack(STREAM_KEY, CONSUMER_GROUP, msg_id)
                 log.error(f"💀 DLQ: {msg_id} — {e}")
         if buf:
@@ -117,6 +144,7 @@ async def writer():
     # Index TTL 7 jours
     try:
         await col.create_index("inserted_at", expireAfterSeconds=7*24*3600)
+        await col.create_index([("room_name", 1), ("server_ts", 1)])
         await alerts.create_index("inserted_at", expireAfterSeconds=7*24*3600)
     except Exception: pass
 

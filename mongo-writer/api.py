@@ -3,37 +3,80 @@ Dashboard API — Videolog POC
 FastAPI avec Server-Sent Events (SSE) pour le dashboard temps réel.
 """
 import asyncio, json, os, time
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from typing import AsyncGenerator, Any
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 
 MONGO_URL  = os.environ.get("MONGO_URL",         "mongodb://mongo:27017/videolog")
 REDIS_URL  = os.environ.get("REDIS_URL",         "redis://redis:6379")
 LK_URL     = os.environ.get("LIVEKIT_URL",       "http://livekit:7880")
-LK_KEY     = os.environ.get("LIVEKIT_API_KEY",   "devkey")
-LK_SECRET  = os.environ.get("LIVEKIT_API_SECRET","secret")
+LK_KEY     = os.environ["LIVEKIT_API_KEY"]
+LK_SECRET  = os.environ["LIVEKIT_API_SECRET"]
 LK_PUB_URL = os.environ.get("LIVEKIT_PUBLIC_URL","ws://10.0.2.2:7880")
 MINIO_EP   = os.environ.get("MINIO_ENDPOINT",    "http://minio:9000")
-MINIO_AK   = os.environ.get("MINIO_ACCESS_KEY",  "videolog")
-MINIO_SK   = os.environ.get("MINIO_SECRET_KEY",  "videolog123")
+MINIO_AK   = os.environ["MINIO_ACCESS_KEY"]
+MINIO_SK   = os.environ["MINIO_SECRET_KEY"]
 REC_BUCKET = "recordings"
-MINIO_PUBLIC_URL = os.environ.get("MINIO_PUBLIC_URL", "http://localhost:9000")
+MINIO_PUBLIC_URL = os.environ["MINIO_PUBLIC_URL"]
 
 app = FastAPI(title="Videolog Dashboard API")
-app.add_middleware(CORSMiddleware, allow_origins=["*"],
-                   allow_methods=["*"], allow_headers=["*"])
-
 mongo  = AsyncIOMotorClient(MONGO_URL)
 col    = mongo.videolog.telemetry
 recs   = mongo.videolog.recordings
 sess   = mongo.videolog.sessions
 alerts = mongo.videolog.alerts
+rooms  = mongo.videolog.room_state
 r: aioredis.Redis = None
+
+
+def _minio_client(public: bool = False):
+    from minio import Minio
+    from urllib.parse import urlparse
+    endpoint = MINIO_PUBLIC_URL if public else MINIO_EP
+    parsed = urlparse(endpoint)
+    return Minio(parsed.netloc, access_key=MINIO_AK, secret_key=MINIO_SK,
+                 secure=parsed.scheme == "https")
+
+
+def _sign_recording_files(doc: dict) -> dict:
+    from minio import Minio
+    client = _minio_client(public=True)
+    for item in doc.get("files", []):
+        filename = item.get("filename", "").lstrip("/")
+        if filename:
+            signed_url = client.presigned_get_object(
+                REC_BUCKET, filename, expires=timedelta(hours=1))
+            item["url"] = signed_url
+            item["minio_url"] = signed_url
+    return doc
+
+
+def _livekit_timestamp_iso(value) -> str | None:
+    try:
+        timestamp_ns = int(value)
+        if timestamp_ns <= 0:
+            raise ValueError("LiveKit timestamp is missing")
+        return datetime.fromtimestamp(timestamp_ns / 1_000_000_000, UTC).isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def _epoch_ms(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.timestamp() * 1000
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 @app.on_event("startup")
@@ -69,12 +112,13 @@ async def health():
 # ── Stats ──────────────────────────────────────────────────────────────────────
 
 @app.get("/stats")
-async def stats():
-    total      = await col.count_documents({})
-    session    = await sess.find_one({}, sort=[("started_at", -1)])
+async def stats(room: str | None = None):
+    query      = {"room_name": room} if room else {}
+    total      = await col.count_documents(query)
+    session    = await sess.find_one(query, sort=[("started_at", -1)])
     stream_len = await r.xlen("telemetry:stream") if r else 0
-    alert_cnt  = await alerts.count_documents({})
-    last       = await col.find_one({}, sort=[("ts", -1)])
+    alert_cnt  = await alerts.count_documents(query)
+    last       = await col.find_one(query, sort=[("ts", -1)])
     return {
         "total_events":   total,
         "stream_pending": stream_len,
@@ -90,8 +134,9 @@ async def stats():
 # ── Telemetry ──────────────────────────────────────────────────────────────────
 
 @app.get("/telemetry/latest")
-async def latest(limit: int = 20):
-    return await col.find({}, {"_id": 0},
+async def latest(room: str | None = None, limit: int = 20):
+    query = {"room_name": room} if room else {}
+    return await col.find(query, {"_id": 0},
                           sort=[("ts", -1)], limit=limit).to_list(limit)
 
 
@@ -116,6 +161,64 @@ async def series(room: str = "poc-room", limit: int = 200):
         "lng":         d["telemetry"]["gps"]["lng"],
         "altitude":    d["telemetry"]["gps"].get("altitude", 0),
     } for d in docs]
+
+
+@app.get("/recordings/{egress_id}/telemetry")
+async def recording_telemetry(egress_id: str, limit: int = 100000):
+    """Return telemetry from MongoDB on the selected recording's video timeline."""
+    rec = await recs.find_one(
+        {"egress_id": egress_id},
+        {"_id": 0, "room_name": 1, "started_at": 1, "ended_at": 1,
+         "video_started_at": 1, "video_ended_at": 1},
+    )
+    if not rec:
+        return []
+
+    start_ms = _epoch_ms(rec.get("video_started_at")) or _epoch_ms(rec.get("started_at"))
+    if start_ms is None:
+        return []
+
+    server_ts: dict[str, float] = {"$gte": start_ms}
+    end_ms = _epoch_ms(rec.get("video_ended_at")) or _epoch_ms(rec.get("ended_at"))
+    if end_ms is not None:
+        server_ts["$lte"] = end_ms
+
+    docs = await col.find(
+        {"room_name": rec["room_name"], "server_ts": server_ts},
+        {"_id": 0, "participant": 1, "server_ts": 1, "capture_ts": 1,
+         "packet_b64": 1, "telemetry_decoded": 1,
+         "pts_ms": 1, "telemetry.role": 1, "telemetry.speed": 1,
+         "telemetry.heart_rate": 1, "telemetry.cadence": 1,
+         "telemetry.gps": 1, "telemetry.bearing": 1},
+        sort=[("server_ts", 1)],
+        limit=max(1, min(limit, 250000)),
+    ).to_list(max(1, min(limit, 250000)))
+
+    result = []
+    for doc in docs:
+        telemetry = doc.get("telemetry", {})
+        gps = telemetry.get("gps", {})
+        received_ms = float(doc.get("server_ts", start_ms))
+        binary_packet = bool(doc.get("packet_b64"))
+        binary_decoded = binary_packet and bool(doc.get("telemetry_decoded"))
+        timeline_ms = (float(doc.get("capture_ts", received_ms))
+                       if binary_decoded else received_ms)
+        result.append({
+            "video_ms": max(0.0, timeline_ms - start_ms),
+            "pts_ms": float(doc.get("pts_ms", 0)),
+            "participant": doc.get("participant", "unknown"),
+            "binary_packet": binary_packet,
+            "binary_decoded": binary_decoded,
+            "role": telemetry.get("role", "trainee"),
+            "speed": None if binary_packet and not binary_decoded else telemetry.get("speed", 0),
+            "heart_rate": None if binary_packet and not binary_decoded else telemetry.get("heart_rate", 0),
+            "cadence": None if binary_packet and not binary_decoded else telemetry.get("cadence", 0),
+            "bearing": None if binary_packet and not binary_decoded else telemetry.get("bearing"),
+            "lat": None if binary_packet and not binary_decoded else gps.get("lat", 0),
+            "lng": None if binary_packet and not binary_decoded else gps.get("lng", 0),
+            "altitude": None if binary_packet and not binary_decoded else gps.get("altitude", 0),
+        })
+    return result
 
 
 @app.get("/telemetry/export")
@@ -156,10 +259,101 @@ async def get_alerts(room: str = "poc-room", limit: int = 50):
     return docs
 
 
+# ─── Rooms / Sessions ────────────────────────────────────────────────────────
+
+@app.get("/rooms")
+async def list_rooms(limit: int = 50):
+    room_names = set()
+    docs_by_room: dict[str, dict] = {}
+
+    async for d in rooms.find({}, {"_id": 0}).sort("updated_at", -1).limit(limit):
+        name = d.get("room_name")
+        if not name:
+            continue
+        if isinstance(d.get("updated_at"), datetime):
+            d["updated_at"] = d["updated_at"].isoformat()
+        docs_by_room[name] = d
+        room_names.add(name)
+
+    async for d in sess.find({}, {"_id": 0, "room_name": 1, "started_at": 1}).sort("started_at", -1).limit(limit):
+        name = d.get("room_name")
+        if not name or name in room_names:
+            continue
+        room_names.add(name)
+        docs_by_room[name] = {
+            "room_name": name,
+            "participants": [],
+            "count": 0,
+            "recording": False,
+            "finished": False,
+            "started_at": d.get("started_at"),
+        }
+
+    if not docs_by_room:
+        docs_by_room["poc-room"] = {
+            "room_name": "poc-room",
+            "participants": [],
+            "count": 0,
+            "recording": False,
+            "finished": False,
+        }
+
+    return list(docs_by_room.values())
+
+
+@app.post("/rooms")
+async def create_room(body: dict):
+    room_name = (body.get("room_name") or body.get("name") or "").strip()
+    if not room_name:
+        return {"error": "room_name is required"}
+
+    now = datetime.now(UTC)
+    await rooms.update_one(
+        {"room_name": room_name},
+        {"$setOnInsert": {
+            "room_name": room_name,
+            "participants": [],
+            "count": 0,
+            "egress_ids": [],
+            "recording": False,
+            "finished": False,
+            "created_at": now,
+        }, "$set": {"updated_at": now}},
+        upsert=True,
+    )
+    await sess.update_one(
+        {"room_name": room_name},
+        {"$setOnInsert": {
+            "room_name": room_name,
+            "started_at": now.isoformat(),
+            "status": "waiting",
+        }},
+        upsert=True,
+    )
+    return {"room_name": room_name, "status": "ready"}
+
+
+@app.get("/rooms/{room_name}")
+async def get_room(room_name: str):
+    doc = await rooms.find_one({"room_name": room_name}, {"_id": 0})
+    if not doc:
+        doc = {
+            "room_name": room_name,
+            "participants": [],
+            "count": 0,
+            "egress_ids": [],
+            "recording": False,
+            "finished": False,
+        }
+    if isinstance(doc.get("updated_at"), datetime):
+        doc["updated_at"] = doc["updated_at"].isoformat()
+    return doc
+
+
 # ── SSE — événements temps réel ───────────────────────────────────────────────
 
 @app.get("/events")
-async def sse_events(request: Request):
+async def sse_events(request: Request, room: str | None = None):
     """
     Server-Sent Events — pousse les updates en temps réel au dashboard.
     Remplace le polling 1.5s par des événements instantanés.
@@ -190,6 +384,11 @@ async def sse_events(request: Request):
                     except Exception:
                         data = {"raw": msg["data"]}
 
+                    event_room = data.get("room_name") or data.get("room")
+                    if room and event_room and event_room != room:
+                        await asyncio.sleep(0.05)
+                        continue
+
                     if channel == "alerts":
                         yield f"event: alert\ndata: {json.dumps(data)}\n\n"
                     elif channel == "egress:events":
@@ -200,14 +399,19 @@ async def sse_events(request: Request):
                 # Télémétrie latest toutes les 500ms
                 tick += 1
                 if tick % 10 == 0:
-                    last = await col.find_one({}, {"_id": 0}, sort=[("ts", -1)])
+                    query = {"room_name": room} if room else {}
+                    last = await col.find_one(query, {"_id": 0}, sort=[("ts", -1)])
                     if last and last.get("ts", 0) != last_ts:
                         last_ts = last.get("ts", 0)
                         t = last.get("telemetry", {})
                         payload = {
+                            "room_name":    last.get("room_name", ""),
                             "pts_ms":      last.get("pts_ms", 0),
                             "participant": last.get("participant", ""),
+                            "role":        t.get("role", "trainee"),
                             "speed":       t.get("speed", 0),
+                            "heart_rate":  t.get("heart_rate", 0),
+                            "cadence":     t.get("cadence", 0),
                             "rpm":         t.get("rpm", 0),
                             "gear":        t.get("gear", 0),
                             "brake":       t.get("brake", 0),
@@ -256,25 +460,31 @@ async def generate_token(body: dict):
 # ── Recordings ─────────────────────────────────────────────────────────────────
 
 @app.get("/recordings")
-async def list_recordings():
-    docs = await recs.find({}, {"_id": 0}, sort=[("started_at", -1)]).to_list(50)
+async def list_recordings(room: str | None = None, room_name: str | None = None, limit: int = 50):
+    selected_room = room_name or room
+    query = {"room_name": selected_room} if selected_room else {}
+    docs = await recs.find(query, {"_id": 0}, sort=[("started_at", -1)]).to_list(limit)
     for d in docs:
         for f in ("started_at", "ended_at"):
             if isinstance(d.get(f), datetime): d[f] = d[f].isoformat()
+        _sign_recording_files(d)
     return docs
 
 
 @app.get("/recordings/files")
-async def list_files():
+async def list_files(room: str | None = None, room_name: str | None = None):
     from minio import Minio
     try:
-        mc = Minio(MINIO_EP.replace("http://","").replace("https://",""),
-                   access_key=MINIO_AK, secret_key=MINIO_SK, secure=False)
+        internal_mc = _minio_client()
+        public_mc = _minio_client(public=True)
+        selected_room = room_name or room
+        prefix = f"{selected_room}/" if selected_room else None
         return [{"key": o.object_name, "size_bytes": o.size,
                  "size_mb": round((o.size or 0)/(1024*1024), 2),
                  "last_modified": o.last_modified.isoformat() if o.last_modified else None,
-                 "url": f"{MINIO_PUBLIC_URL}/{REC_BUCKET}/{o.object_name}"}
-                for o in mc.list_objects(REC_BUCKET, recursive=True)]
+                 "url": public_mc.presigned_get_object(REC_BUCKET, o.object_name,
+                                                        expires=timedelta(hours=1))}
+                for o in internal_mc.list_objects(REC_BUCKET, prefix=prefix, recursive=True)]
     except Exception as e:
         return {"error": str(e)}
 
@@ -282,6 +492,8 @@ async def list_files():
 @app.get("/recordings/{egress_id}")
 async def get_recording(egress_id: str):
     doc = await recs.find_one({"egress_id": egress_id}, {"_id": 0})
+    if doc:
+        _sign_recording_files(doc)
     return doc or {}
 
 
@@ -365,20 +577,26 @@ async def livekit_webhook(request: Request):
     if event == "egress_started":
         await recs.update_one({"egress_id": egress_id}, {"$set": {
             "egress_id": egress_id, "room_name": room_name, "status": "recording",
-            "started_at": datetime.now(UTC).isoformat(), "files": [],
+            "started_at": _livekit_timestamp_iso(egress_info.get("startedAt")), "files": [],
         }}, upsert=True)
         if r: await r.publish("egress:events", json.dumps(
             {"event": "started", "egress_id": egress_id, "room": room_name}))
     elif event == "egress_ended":
+        file_results = egress_info.get("fileResults") or []
         files = [{"filename": f.get("filename",""), "size": f.get("size",0),
                   "duration": f.get("duration",0),
                   "url": f"{MINIO_PUBLIC_URL}/{REC_BUCKET}/{f.get('filename','').lstrip('/')}"}
-                 for f in (egress_info.get("fileResults") or [])]
+                 for f in file_results]
         error = egress_info.get("error","")
-        await recs.update_one({"egress_id": egress_id}, {"$set": {
+        update = {
             "status": "failed" if error else "completed",
-            "ended_at": datetime.now(UTC).isoformat(), "files": files, "error": error or None,
-        }}, upsert=True)
+            "ended_at": _livekit_timestamp_iso(egress_info.get("endedAt")),
+            "files": files, "error": error or None,
+        }
+        if file_results:
+            update["video_started_at"] = _livekit_timestamp_iso(file_results[0].get("startedAt"))
+            update["video_ended_at"] = _livekit_timestamp_iso(file_results[0].get("endedAt"))
+        await recs.update_one({"egress_id": egress_id}, {"$set": update}, upsert=True)
         if r: await r.publish("egress:events", json.dumps(
             {"event": "ended", "egress_id": egress_id,
              "status": "failed" if error else "completed", "files": files}))

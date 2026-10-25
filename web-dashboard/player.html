@@ -77,6 +77,7 @@
     .rec-item {
       padding: 10px 12px; border-radius: 6px; border: 1px solid #21262d;
       cursor: pointer; transition: border-color .15s, background .15s;
+      display: block; width: 100%; appearance: none; color: inherit; text-align: left; font: inherit; background: transparent;
     }
     .rec-item:hover { border-color: #58a6ff; background: #1c2128; }
     .rec-item.active { border-color: #238636; background: #1a2e1a; }
@@ -161,6 +162,24 @@
       background: #0d1117; color: #444; font-size: 14px; flex-direction: column; gap: 8px;
     }
     .no-video .icon { font-size: 40px; }
+    :root{color-scheme:dark;--bg:#090d13;--panel:#111821;--line:#263342;--muted:#8b9aab;--text:#e6edf3;--green:#37c978;--blue:#63a9ff}
+    body{max-width:1600px;margin:0 auto;padding:clamp(14px,2vw,30px);background:radial-gradient(ellipse at 12% 0%,#142333 0,transparent 38%),var(--bg);color:var(--text)}
+    header{border-color:var(--line);margin-bottom:18px}.layout{grid-template-columns:minmax(0,1fr) minmax(320px,390px);gap:18px}
+    .player-card,.card{background:linear-gradient(145deg,rgba(21,30,41,.98),rgba(14,20,28,.98));border-color:var(--line);box-shadow:0 12px 32px rgba(0,0,0,.16)}
+    .card{padding:18px}.player-card video{max-height:min(68vh,720px);aspect-ratio:16/9}
+    .player-controls{min-height:68px}.player-meta{gap:6px}.player-subtle,.map-status{color:var(--muted)}
+    .gauges{gap:8px}.gauge{border-color:#2b3948;background:linear-gradient(160deg,#111a24,#0c1219)}.gauge-val{font-variant-numeric:tabular-nums}
+    .rec-item{padding:12px;border-color:#2a3847;background:rgba(8,13,19,.38)}.rec-item:hover{background:#172433}.rec-item.active{background:#12271e;border-color:#2e9b5d}
+    #map{height:clamp(220px,28vh,340px)}.timeline-bar{height:9px;border:1px solid #344455;touch-action:none}.timeline-progress{background:linear-gradient(90deg,#2bbf70,#71e2a4)}
+    .pts-display{font-variant-numeric:tabular-nums;color:var(--text)}
+    #app-status{display:none;align-items:center;justify-content:space-between;gap:14px;padding:12px 16px;margin:0 0 16px;border:1px solid #8e3434;border-radius:10px;background:#281a1d;color:#ffb4ad;font-size:13px}
+    #app-status.visible{display:flex}#app-status button{border:1px solid #9e4540;border-radius:7px;background:#3b2024;color:#fff;padding:7px 11px;cursor:pointer}
+    .inline-error,.empty-state{padding:14px;border:1px dashed #354354;border-radius:8px;color:var(--muted);font-size:12px;line-height:1.5}
+    .inline-error{border-color:#713b3b;color:#ffb4ad;background:#25191b}
+    button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+    @media(max-width:1000px){.layout{grid-template-columns:1fr}.sidebar{display:grid;grid-template-columns:1fr 1fr}.sidebar>.card:last-child{grid-column:1/-1}}
+    @media(max-width:620px){body{padding:12px}header{gap:10px;flex-wrap:wrap}.sidebar{display:flex}.player-controls{padding:12px;gap:8px}.player-card video{max-height:48vh}.card{padding:14px}.gauges{gap:6px}.gauge{padding:10px 5px;min-height:76px}.gauge-val{font-size:24px}.map-head{align-items:flex-start;flex-direction:column}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
   </style>
 </head>
 <body>
@@ -173,6 +192,8 @@
   </span>
 </header>
 
+<div id="app-status" role="status" aria-live="polite"><span id="app-status-text"></span><button type="button" onclick="retryCurrent()">Reessayer</button></div>
+
 <div class="layout">
   <div>
     <div class="player-card">
@@ -181,12 +202,14 @@
         <div>Selectionner un enregistrement</div>
         <div style="font-size:12px;color:#333">Les fichiers MP4 apparaissent apres arret de l'Egress</div>
       </div>
-      <video id="player" controls style="display:none"
+      <video id="player" controls preload="metadata" style="display:none"
              ontimeupdate="onTimeUpdate()"
-             onloadedmetadata="onVideoLoaded()">
+             onseeked="onTimeUpdate()"
+             onloadedmetadata="onVideoLoaded()"
+             onerror="onVideoError()">
       </video>
       <div class="timeline-wrap">
-        <div class="timeline-bar" onclick="seekTimeline(event)" id="tl-bar">
+        <div class="timeline-bar" onclick="seekTimeline(event)" onkeydown="seekTimelineKey(event)" id="tl-bar" role="slider" aria-label="Position dans la video" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
           <div class="timeline-progress" id="tl-progress"></div>
         </div>
         <div class="timeline-events" id="tl-events"></div>
@@ -243,20 +266,58 @@
 </div>
 
 <script>
-const API = 'http://localhost:8001';
+const API = '/api';
 
 let telemetryData = [];
-let currentPts = 0;
 let videoDuration = 0;
 let activeRec = null;
-let ptsOffset = 0;
 let mapInstance = null;
 let mapPath = null;
 let mapMarker = null;
 let mapTiles = null;
 let mapUsingTiles = false;
+let loadSequence = 0;
+let listLoading = false;
 
-const speedSyncChart = new Chart(document.getElementById('chart-speed-sync'), {
+function showAppError(error, context = 'Erreur') {
+  const message = error instanceof Error ? error.message : String(error || 'Erreur inconnue');
+  document.getElementById('app-status-text').textContent = `${context} : ${message}`;
+  document.getElementById('app-status').classList.add('visible');
+  console.error(context, error);
+}
+
+function clearAppError() { document.getElementById('app-status').classList.remove('visible'); }
+
+async function apiJson(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    const text = await response.text();
+    let data = null;
+    if (text) {
+      try { data = JSON.parse(text); }
+      catch { throw new Error(`Réponse API illisible (HTTP ${response.status})`); }
+    }
+    if (!response.ok) throw new Error(data?.detail || data?.error || `Erreur HTTP ${response.status}`);
+    return data;
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('Le serveur ne répond pas (délai dépassé)');
+    if (error instanceof TypeError) throw new Error('Connexion impossible à l’API');
+    throw error;
+  } finally { clearTimeout(timeout); }
+}
+
+function makeChart(canvas, config) {
+  if (!window.Chart) {
+    showAppError('Chart.js est indisponible. Vérifie le CDN ou la connexion réseau.', 'Graphique');
+    return { data: config.data, update() {} };
+  }
+  try { return new Chart(canvas, config); }
+  catch (error) { showAppError(error, 'Initialisation du graphique'); return { data: config.data, update() {} }; }
+}
+
+const speedSyncChart = makeChart(document.getElementById('chart-speed-sync'), {
   type: 'line',
   data: {
     labels: [],
@@ -277,8 +338,9 @@ const speedSyncChart = new Chart(document.getElementById('chart-speed-sync'), {
         backgroundColor: 'transparent',
         borderWidth: 1.5,
         borderDash: [3, 3],
-        pointRadius: 0,
-        label: 'Position',
+        pointRadius: 5,
+        pointHoverRadius: 6,
+        label: 'Temps vidéo courant',
         yAxisID: 'cursor'
       },
     ]
@@ -297,24 +359,44 @@ const speedSyncChart = new Chart(document.getElementById('chart-speed-sync'), {
 });
 
 function normalizeTelemetryPoint(point) {
-  const lat = Number(point.lat ?? point.latitude);
-  const lng = Number(point.lng ?? point.longitude ?? point.lon);
-  const cadence = Number(point.cadence ?? point.rpm);
-  const hrm = Number(point.hrm ?? point.heart_rate);
-  return { ...point, lat, lng, cadence, hrm };
+  const asNumber = (value) => value == null ? Number.NaN : Number(value);
+  const lat = asNumber(point.lat ?? point.latitude);
+  const lng = asNumber(point.lng ?? point.longitude ?? point.lon);
+  const cadence = asNumber(point.cadence ?? point.rpm);
+  const hrm = asNumber(point.hrm ?? point.heart_rate);
+  const speed = asNumber(point.speed);
+  return { ...point, speed, lat, lng, cadence, hrm };
 }
 
 function hasValidCoords(point) {
   return Number.isFinite(point.lat) && Number.isFinite(point.lng);
 }
 
+function safeHttpUrl(value) {
+  try {
+    const url = new URL(value, window.location.href);
+    if (window.location.protocol === 'https:' && url.protocol !== 'https:') return '';
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch { return ''; }
+}
+
 function ensureMap() {
   if (mapInstance) return mapInstance;
+  if (!window.L) {
+    updateMapStatus('Leaflet indisponible : la carte ne peut pas être affichée.');
+    return null;
+  }
 
-  mapInstance = L.map('map', {
-    zoomControl: false,
-    attributionControl: false
-  }).setView([48.8566, 2.3522], 12);
+  try {
+    mapInstance = L.map('map', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([48.8566, 2.3522], 12);
+  } catch (error) {
+    showAppError(error, 'Initialisation de la carte');
+    updateMapStatus('Carte indisponible. La lecture vidéo reste accessible.');
+    return null;
+  }
 
   mapTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
@@ -345,6 +427,7 @@ function updateMapStatus(message) {
 
 function initMapTrack(data) {
   const map = ensureMap();
+  if (!map) return;
   const gpsPoints = data.filter(hasValidCoords);
 
   if (mapPath) {
@@ -388,63 +471,99 @@ function updateMapPosition(point) {
   mapMarker.setLatLng([point.lat, point.lng]);
 }
 
-function findTelemetryAtPts(ptsMs) {
+function findTelemetryAtVideoMs(videoMs) {
   if (!telemetryData.length) return null;
   let lo = 0;
-  let hi = telemetryData.length - 1;
+  let hi = telemetryData.length;
 
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (telemetryData[mid].pts_ms < ptsMs) lo = mid + 1;
+    if (telemetryData[mid].video_ms <= videoMs) lo = mid + 1;
     else hi = mid;
   }
 
-  return { data: telemetryData[lo], idx: lo };
+  const idx = lo - 1;
+  return idx >= 0 ? { data: telemetryData[idx], idx } : null;
 }
 
 function onTimeUpdate() {
   const video = document.getElementById('player');
-  const ptsMs = video.currentTime * 1000 + ptsOffset;
-  currentPts = ptsMs;
+  if (!Number.isFinite(video.currentTime)) return;
+  const videoMs = video.currentTime * 1000;
 
   document.getElementById('pts-display').textContent = video.currentTime.toFixed(1) + 's';
 
   if (videoDuration > 0) {
     const pct = (video.currentTime / videoDuration) * 100;
     document.getElementById('tl-progress').style.width = pct + '%';
+    document.getElementById('tl-bar').setAttribute('aria-valuenow', String(Math.round(pct)));
   }
 
-  const result = findTelemetryAtPts(ptsMs);
-  if (!result) return;
+  const result = findTelemetryAtVideoMs(videoMs);
+  if (!result) {
+    document.getElementById('g-speed').textContent = '--';
+    document.getElementById('g-hrm').textContent = '--';
+    document.getElementById('g-cad').textContent = '--';
+    speedSyncChart.data.datasets[1].data = [];
+    speedSyncChart.update('none');
+    return;
+  }
 
   const { data, idx } = result;
-  document.getElementById('g-speed').textContent = data.speed?.toFixed(0) ?? '--';
+  document.getElementById('g-speed').textContent = Number.isFinite(data.speed) ? data.speed.toFixed(0) : '--';
   document.getElementById('g-hrm').textContent = Number.isFinite(data.hrm) ? data.hrm.toFixed(0) : '--';
   document.getElementById('g-cad').textContent = Number.isFinite(data.cadence) ? data.cadence.toFixed(0) : '--';
 
   updateMapPosition(data);
 
-  if (telemetryData.length > 0) {
-    speedSyncChart.data.datasets[1].data = [];
-    speedSyncChart.update('none');
-  }
+  speedSyncChart.data.datasets[1].data = telemetryData.map((_, i) => i === idx ? 0.5 : null);
+  speedSyncChart.update('none');
 }
 
 function onVideoLoaded() {
   const video = document.getElementById('player');
-  videoDuration = video.duration;
+  videoDuration = Number.isFinite(video.duration) ? video.duration : 0;
   document.getElementById('tl-progress').style.width = '0%';
+  document.getElementById('tl-bar').setAttribute('aria-valuenow', '0');
+  if (!videoDuration) showAppError('La durée de la vidéo est inconnue ou invalide.', 'Lecture vidéo');
   buildTimelineTicks();
+}
+
+function onVideoError() {
+  const video = document.getElementById('player');
+  if (!video.getAttribute('src')) return;
+  const code = video.error?.code;
+  const messages = {
+    1: 'Chargement de la vidéo annulé.',
+    2: 'Erreur réseau pendant le chargement de la vidéo.',
+    3: 'Le navigateur n’a pas pu décoder cette vidéo.',
+    4: 'Format vidéo ou URL non pris en charge.'
+  };
+  const message = messages[code] || 'Impossible de lire cette vidéo.';
+  document.getElementById('player-info').textContent = message;
+  showAppError(message, 'Lecture vidéo');
 }
 
 function seekTimeline(e) {
   const bar = document.getElementById('tl-bar');
   const rect = bar.getBoundingClientRect();
-  const pct = (e.clientX - rect.left) / rect.width;
   const video = document.getElementById('player');
-  if (video.readyState >= 1) {
-    video.currentTime = pct * video.duration;
-  }
+  if (video.readyState < 1 || !Number.isFinite(video.duration) || video.duration <= 0 || rect.width <= 0) return;
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  try { video.currentTime = pct * video.duration; }
+  catch (error) { showAppError(error, 'Déplacement dans la vidéo'); }
+}
+
+function seekTimelineKey(event) {
+  const video = document.getElementById('player');
+  if (video.readyState < 1 || !Number.isFinite(video.duration) || video.duration <= 0) return;
+  const step = event.shiftKey ? 10 : 5;
+  if (event.key === 'ArrowRight') video.currentTime = Math.min(video.duration, video.currentTime + step);
+  else if (event.key === 'ArrowLeft') video.currentTime = Math.max(0, video.currentTime - step);
+  else if (event.key === 'Home') video.currentTime = 0;
+  else if (event.key === 'End') video.currentTime = video.duration;
+  else return;
+  event.preventDefault();
 }
 
 function buildTimelineTicks() {
@@ -454,7 +573,7 @@ function buildTimelineTicks() {
 
   telemetryData.forEach((d, i) => {
     if (i > 0 && d.gear !== telemetryData[i - 1].gear) {
-      const pct = ((d.pts_ms - ptsOffset) / (videoDuration * 1000)) * 100;
+      const pct = (d.video_ms / (videoDuration * 1000)) * 100;
       const tick = document.createElement('div');
       tick.className = 'tl-tick';
       tick.style.left = pct + '%';
@@ -465,29 +584,36 @@ function buildTimelineTicks() {
 }
 
 async function loadRecording(rec) {
+  if (!rec || !rec.egress_id) {
+    showAppError('Cet enregistrement ne possède pas d’identifiant valide.', 'Sélection');
+    return;
+  }
+  const sequence = ++loadSequence;
   activeRec = rec;
+  const video = document.getElementById('player');
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  video.style.display = 'none';
+  document.getElementById('no-video-placeholder').style.display = 'flex';
+  document.getElementById('player-info').textContent = 'Chargement de l’enregistrement…';
+  document.getElementById('sync-badge').style.display = 'none';
+  videoDuration = 0;
 
   document.querySelectorAll('.rec-item').forEach((el) => el.classList.remove('active'));
-  const activeEl = document.querySelector(`[data-id="${rec.egress_id}"]`);
+  const activeEl = [...document.querySelectorAll('.rec-item')].find(el => el.dataset.id === rec.egress_id);
   if (activeEl) activeEl.classList.add('active');
 
-  await loadTelemetry(rec.room_name);
-
-  if (rec.started_at && telemetryData.length) {
-    const egressStartMs = new Date(rec.started_at).getTime();
-    const firstPtsMs = telemetryData[0].pts_ms;
-    ptsOffset = firstPtsMs - egressStartMs;
-    console.info(`[sync] ptsOffset=${ptsOffset}ms egressStart=${rec.started_at} firstPts=${firstPtsMs}`);
-  } else {
-    ptsOffset = 0;
-  }
+  await loadTelemetry(rec.egress_id);
+  if (sequence !== loadSequence) return;
 
   const file = rec.files?.[0];
-  if (file) {
+  const videoUrl = safeHttpUrl(file?.url || file?.minio_url);
+  if (videoUrl) {
     const video = document.getElementById('player');
     const placeholder = document.getElementById('no-video-placeholder');
 
-    video.src = file.minio_url || file.url || '';
+    video.src = videoUrl;
     video.style.display = 'block';
     placeholder.style.display = 'none';
 
@@ -495,16 +621,31 @@ async function loadRecording(rec) {
       `${file.filename || 'recording.mp4'} (${file.size_mb || '?'} MB · ${file.duration_s || '?'}s)`;
 
     document.getElementById('sync-badge').style.display = 'inline';
+    video.load();
   } else {
-    document.getElementById('player-info').textContent = 'Fichier en cours de traitement...';
+    document.getElementById('player-info').textContent = file
+      ? 'Le lien vidéo est absent ou invalide.'
+      : (rec.status === 'recording' ? 'Enregistrement en cours ; le fichier sera disponible après son arrêt.' : 'Aucun fichier vidéo associé à cet enregistrement.');
+    if (file) showAppError('Le serveur a retourné une URL vidéo invalide.', 'Lecture vidéo');
   }
 }
 
-async function loadTelemetry(roomName) {
+async function loadTelemetry(egressId) {
+  const sequence = loadSequence;
+  telemetryData = [];
+  speedSyncChart.data.labels = [];
+  speedSyncChart.data.datasets[0].data = [];
+  speedSyncChart.data.datasets[1].data = [];
+  speedSyncChart.update('none');
+  document.getElementById('g-speed').textContent = '--';
+  document.getElementById('g-hrm').textContent = '--';
+  document.getElementById('g-cad').textContent = '--';
   try {
-    const response = await fetch(`${API}/telemetry/series?room=${roomName}&limit=500`);
-    const data = await response.json();
-    telemetryData = Array.isArray(data) ? data.map(normalizeTelemetryPoint) : [];
+    const data = await apiJson(`${API}/recordings/${encodeURIComponent(egressId)}/telemetry`);
+    if (sequence !== loadSequence) return;
+    if (!Array.isArray(data)) throw new Error('Réponse de télémétrie invalide');
+    telemetryData = data.filter(point => Number.isFinite(Number(point?.video_ms)))
+      .map(normalizeTelemetryPoint).sort((a, b) => a.video_ms - b.video_ms);
 
     if (!telemetryData.length) {
       speedSyncChart.data.labels = [];
@@ -515,51 +656,87 @@ async function loadTelemetry(roomName) {
       return;
     }
 
-    speedSyncChart.data.labels = telemetryData.map((d) => (d.pts_ms / 1000).toFixed(1));
-    speedSyncChart.data.datasets[0].data = telemetryData.map((d) => d.speed);
+    speedSyncChart.data.labels = telemetryData.map((d) => (d.video_ms / 1000).toFixed(1));
+    speedSyncChart.data.datasets[0].data = telemetryData.map((d) => Number.isFinite(d.speed) ? d.speed : null);
     speedSyncChart.update('none');
 
     initMapTrack(telemetryData);
     buildTimelineTicks();
+    if (telemetryData.some((d) => d.binary_packet && !d.binary_decoded)) {
+      updateMapStatus('Certains paquets binaires n’ont pas pu être décodés.');
+    }
   } catch (e) {
-    console.error('Erreur chargement telemetrie:', e);
-    updateMapStatus('Erreur de chargement de la carte GPS');
+    if (sequence !== loadSequence) return;
+    updateMapStatus('Erreur de chargement de la télémétrie.');
+    showAppError(e, 'Chargement de la télémétrie');
   }
 }
 
 async function loadRecordingList() {
   const list = document.getElementById('rec-list');
+  if (listLoading) return;
+  listLoading = true;
   try {
-    const response = await fetch(`${API}/recordings?limit=20`);
-    const recordings = await response.json();
-
-    if (!Array.isArray(recordings) || !recordings.length) {
-      list.innerHTML = '<div style="color:#444;font-size:12px">Aucun enregistrement. Lance une session depuis le dashboard.</div>';
+    const recordings = await apiJson(`${API}/recordings?limit=20`);
+    if (!Array.isArray(recordings)) throw new Error('Invalid recordings response');
+    if (!recordings.length) {
+      list.innerHTML = '<div class="empty-state">Aucun enregistrement disponible. Lance une session depuis le dashboard.</div>';
       return;
     }
 
-    list.innerHTML = recordings.map((rec) => {
+    list.replaceChildren();
+    recordings.forEach((rec) => {
+      if (!rec || typeof rec.egress_id !== 'string' || !rec.egress_id) return;
       const statusClass = rec.status === 'completed' ? 'status-complete'
-        : rec.status === 'recording' ? 'status-active'
-        : 'status-other';
-      const statusLabel = rec.status || '?';
-      const date = rec.started_at ? rec.started_at.slice(0, 16).replace('T', ' ') : '';
-      const dur = rec.duration_s ? `${Math.round(rec.duration_s)}s` : '';
-      const name = rec.files?.[0]?.filename || rec.egress_id || 'recording';
+        : rec.status === 'recording' ? 'status-active' : 'status-other';
+      const dateValue = rec.started_at ? new Date(rec.started_at) : null;
+      const date = dateValue && Number.isFinite(dateValue.getTime())
+        ? dateValue.toLocaleString('fr-FR') : 'Date inconnue';
+      const duration = Number(rec.duration_s);
+      const dur = Number.isFinite(duration) && duration > 0 ? `${Math.round(duration)} s` : '';
+      const name = rec.files?.[0]?.filename || rec.egress_id;
+      const selected = activeRec?.egress_id === rec.egress_id;
 
-      return `<div class="rec-item" data-id="${rec.egress_id}" onclick='loadRecording(${JSON.stringify(rec).replace(/'/g, '&#39;')})'>
-        <div class="rec-item-name">${name}</div>
-        <div class="rec-item-meta">${date} ${dur ? '· ' + dur : ''}</div>
-        <span class="rec-item-status ${statusClass}">${statusLabel}</span>
-      </div>`;
-    }).join('');
-  } catch (e) {
-    list.innerHTML = `<div style="color:#f85149;font-size:12px">Erreur chargement recordings: ${e.message}</div>`;
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = `rec-item${selected ? ' active' : ''}`;
+      item.dataset.id = rec.egress_id;
+      item.setAttribute('aria-pressed', String(selected));
+      const title = document.createElement('div');
+      title.className = 'rec-item-name';
+      title.textContent = name;
+      const meta = document.createElement('div');
+      meta.className = 'rec-item-meta';
+      meta.textContent = `${date}${dur ? ' ? ' + dur : ''}`;
+      const status = document.createElement('span');
+      status.className = `rec-item-status ${statusClass}`;
+      status.textContent = rec.status || 'Inconnu';
+      item.append(title, meta, status);
+      item.addEventListener('click', () => loadRecording(rec));
+      list.append(item);
+    });
+    if (!list.children.length) list.innerHTML = '<div class="empty-state">Aucun enregistrement exploitable.</div>';
+  } catch (error) {
+    const message = String(error?.message || error);
+    list.textContent = '';
+    const errorBox = document.createElement('div');
+    errorBox.className = 'inline-error';
+    errorBox.textContent = message;
+    list.append(errorBox);
+    showAppError(error, 'Chargement des enregistrements');
+  } finally {
+    listLoading = false;
   }
 }
 
+async function retryCurrent() {
+  clearAppError();
+  await loadRecordingList();
+  if (activeRec) await loadRecording(activeRec);
+}
+
 loadRecordingList();
-setInterval(loadRecordingList, 15000);
+setInterval(() => { if (!document.hidden) loadRecordingList(); }, 20000);
 </script>
 </body>
 </html>

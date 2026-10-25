@@ -11,7 +11,6 @@ import asyncio, json, logging, os, time
 from datetime import datetime, UTC
 
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import redis.asyncio as aioredis
 from livekit import api as lkapi
@@ -23,14 +22,14 @@ log = logging.getLogger(__name__)
 
 MONGO_URL    = os.environ.get("MONGO_URL",          "mongodb://mongo:27017/videolog")
 REDIS_URL    = os.environ.get("REDIS_URL",          "redis://redis:6379")
-API_KEY      = os.environ.get("LIVEKIT_API_KEY",    "devkey")
-API_SECRET   = os.environ.get("LIVEKIT_API_SECRET", "secret")
+API_KEY      = os.environ["LIVEKIT_API_KEY"]
+API_SECRET   = os.environ["LIVEKIT_API_SECRET"]
 LIVEKIT_URL  = os.environ.get("LIVEKIT_URL",        "http://livekit:7880")
 MINIO_EP     = os.environ.get("MINIO_ENDPOINT",     "http://minio:9000")
-MINIO_AK     = os.environ.get("MINIO_ACCESS_KEY",   "videolog")
-MINIO_SK     = os.environ.get("MINIO_SECRET_KEY",   "videolog123")
+MINIO_AK     = os.environ["MINIO_ACCESS_KEY"]
+MINIO_SK     = os.environ["MINIO_SECRET_KEY"]
 REC_BUCKET      = "recordings"
-MINIO_PUBLIC_URL = os.environ.get("MINIO_PUBLIC_URL", "http://localhost:9000")
+MINIO_PUBLIC_URL = os.environ["MINIO_PUBLIC_URL"]
 
 # Nombre minimum de participants pour declencher l'enregistrement
 RECORD_MIN_PARTICIPANTS = int(os.environ.get("RECORD_MIN_PARTICIPANTS", "2"))
@@ -40,9 +39,6 @@ STOP_GRACE_DELAY        = int(os.environ.get("STOP_GRACE_DELAY", "10"))
 INTERNAL_IDENTITIES     = {"telemetry-agent", "egress", "livekit-egress"}
 
 app = FastAPI(title="Egress Webhook")
-app.add_middleware(CORSMiddleware,
-    allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
 mongo     = AsyncIOMotorClient(MONGO_URL)
 col       = mongo.videolog.recordings
 rooms_col = mongo.videolog.room_state
@@ -77,6 +73,16 @@ def _count(room_name: str) -> int:
 def _status(code) -> str:
     try:    return proto_egress.EgressStatus.Name(code)
     except: return str(code)
+
+
+def _livekit_timestamp_iso(value) -> str | None:
+    try:
+        timestamp_ns = int(value)
+        if timestamp_ns <= 0:
+            raise ValueError("LiveKit timestamp is missing")
+        return datetime.fromtimestamp(timestamp_ns / 1_000_000_000, UTC).isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
 
 
 async def _cancel_stop(room_name: str):
@@ -301,7 +307,8 @@ async def handle_egress_started(event: dict):
     _room(room_name)["egress_ids"].add(egress_id)
     await col.update_one({"egress_id": egress_id}, {"$set": {
         "egress_id": egress_id, "room_name": room_name,
-        "status": "recording", "started_at": datetime.now(UTC).isoformat(), "files": [],
+        "status": "recording",
+        "started_at": _livekit_timestamp_iso(eg.get("startedAt")), "files": [],
     }}, upsert=True)
     await r.publish("egress:events", json.dumps(
         {"type": "started", "egress_id": egress_id, "room_name": room_name}))
@@ -323,23 +330,28 @@ async def handle_egress_ended(event: dict):
 
     _room(room_name)["egress_ids"].discard(egress_id)
 
+    file_results = eg.get("fileResults", [])
     files = [{
         "filename":   f.get("filename", ""),
         "size_bytes": f.get("size", 0),
         "size_mb":    round(f.get("size", 0) / (1024*1024), 2),
         "duration_s": f.get("duration", 0),
         "minio_url":  f"{MINIO_PUBLIC_URL}/{REC_BUCKET}/{f.get('filename','')}",
-    } for f in eg.get("fileResults", [])]
+    } for f in file_results]
 
     duration_s = max((f["duration_s"] for f in files), default=None)
 
-    await col.update_one({"egress_id": egress_id}, {"$set": {
+    update = {
         "status":     "failed" if error else "completed",
-        "ended_at":   datetime.now(UTC).isoformat(),
+        "ended_at":   _livekit_timestamp_iso(eg.get("endedAt")),
         "duration_s": duration_s,
         "files":      files,
         "error":      error,
-    }}, upsert=True)
+    }
+    if file_results:
+        update["video_started_at"] = _livekit_timestamp_iso(file_results[0].get("startedAt"))
+        update["video_ended_at"] = _livekit_timestamp_iso(file_results[0].get("endedAt"))
+    await col.update_one({"egress_id": egress_id}, {"$set": update}, upsert=True)
 
     if files and not error:
         await mongo.videolog.sessions.update_one(

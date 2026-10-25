@@ -1,5 +1,10 @@
 // MongoDB init — création des collections et index pour Videolog POC
 db = db.getSiblingDB('videolog');
+db.createUser({
+  user: process.env.MONGO_APP_USER,
+  pwd: process.env.MONGO_APP_PASSWORD,
+  roles: [{ role: 'readWrite', db: 'videolog' }]
+});
 
 // Collection telemetry
 db.createCollection('telemetry');
@@ -7,6 +12,7 @@ db.telemetry.createIndex({ room_name: 1, ts: 1 });
 db.telemetry.createIndex({ ts: 1 });
 db.telemetry.createIndex({ pts_ms: 1 });
 db.telemetry.createIndex({ room_name: 1, pts_ms: 1 });
+db.telemetry.createIndex({ room_name: 1, server_ts: 1 });
 
 // Collection sessions
 db.createCollection('sessions');

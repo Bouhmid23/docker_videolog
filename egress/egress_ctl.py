@@ -27,13 +27,13 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 LIVEKIT_URL    = os.environ.get("LIVEKIT_URL",       "http://livekit:7880")
-API_KEY        = os.environ.get("LIVEKIT_API_KEY",    "devkey")
-API_SECRET     = os.environ.get("LIVEKIT_API_SECRET", "secret")
+API_KEY        = os.environ["LIVEKIT_API_KEY"]
+API_SECRET     = os.environ["LIVEKIT_API_SECRET"]
 MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT",     "http://minio:9000")
-MINIO_ACCESS   = os.environ.get("MINIO_ACCESS_KEY",   "videolog")
-MINIO_SECRET   = os.environ.get("MINIO_SECRET_KEY",   "videolog123")
+MINIO_ACCESS   = os.environ["MINIO_ACCESS_KEY"]
+MINIO_SECRET   = os.environ["MINIO_SECRET_KEY"]
 BUCKET         = "recordings"
-MINIO_PUBLIC_URL = os.environ.get("MINIO_PUBLIC_URL", "http://localhost:9000")
+MINIO_PUBLIC_URL = os.environ["MINIO_PUBLIC_URL"]
 
 
 def make_s3_upload(room_name: str) -> proto_egress.S3Upload:

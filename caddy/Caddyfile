@@ -1,0 +1,14 @@
+{$DOMAIN} {
+	basic_auth {
+		{$DASHBOARD_AUTH_USER} {$DASHBOARD_AUTH_HASH}
+	}
+	reverse_proxy dashboard:80
+}
+
+lk.{$DOMAIN} {
+	reverse_proxy livekit:7880
+}
+
+storage.{$DOMAIN} {
+	reverse_proxy minio:9000
+}
