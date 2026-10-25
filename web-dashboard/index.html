@@ -24,12 +24,13 @@
     .room-btn{background:#238636;color:#fff;border:0;border-radius:5px;padding:5px 9px;font-size:11px;cursor:pointer}
     .room-btn:hover{opacity:.86}
 
-    /* Stats — 2 colonnes : coach | trainee */
-    .athlete-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+    .athlete-section{margin-bottom:12px}
+    .section-heading{margin:0 0 10px;color:#aab8c8;font-size:12px;font-weight:600;letter-spacing:.04em}
+    .athlete-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px}
     .athlete-card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:14px}
     .athlete-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+    .athlete-name{min-width:0;overflow:hidden;color:#e6edf3;font-size:13px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}
     .role-badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}
-    .role-coach{background:#1a2035;color:#58a6ff;border:1px solid #185FA5}
     .role-trainee{background:#1a2e1a;color:#3fb950;border:1px solid #238636}
     .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
     .metric{background:#0d1117;border-radius:8px;padding:10px;text-align:center;border:1px solid #21262d}
@@ -76,8 +77,10 @@
     /* Events table */
     .evrow{display:grid;grid-template-columns:60px 100px 60px 60px 60px 1fr;gap:6px;padding:4px 8px;border-radius:3px;border-bottom:1px solid #21262d;font-size:11px;color:#8b949e}
     .evrow:hover{background:#1c2128}.hi{color:#f0f6fc}
+    .evhead{display:grid;grid-template-columns:60px 100px 60px 60px 60px 1fr;gap:6px;padding:3px 8px;font-size:9px;color:#6e7681;text-transform:uppercase;margin-bottom:2px}
+    .events-scroll{min-width:0}
 
-    @media(max-width:900px){.athlete-grid,.two-col,.charts-grid,.lower-grid{grid-template-columns:1fr}}
+    @media(max-width:900px){.two-col,.charts-grid,.lower-grid{grid-template-columns:minmax(0,1fr)}}
     :root{color-scheme:dark;--bg:#090d13;--panel:#111821;--panel-soft:#151e29;--line:#263342;--muted:#8b9aab;--text:#e6edf3;--green:#37c978;--blue:#63a9ff}
     body{max-width:1600px;margin:0 auto;padding:clamp(14px,2vw,30px);background:radial-gradient(ellipse at 15% 0%,#142333 0,transparent 36%),var(--bg);color:var(--text)}
     header{gap:16px;flex-wrap:wrap;border-color:var(--line);margin-bottom:22px}
@@ -98,25 +101,71 @@
     .inline-error{border-color:#713b3b;color:#ffb4ad;background:#25191b}
     .participant-chip{padding:5px 9px;border:1px solid #2a3a49}.rec-status{padding:10px 12px;border:1px solid #253343}
     @media(max-width:1100px){header>div:last-child{width:100%;flex-wrap:wrap}.pipeline{justify-content:flex-start}}
-    @media(max-width:680px){body{padding:12px}.room-controls{width:100%}.room-select{flex:1;min-width:0}.room-input{flex:1;min-width:110px}.charts-grid,.athlete-grid,.two-col{grid-template-columns:1fr}.metrics{gap:6px}.metric-val{font-size:22px}.pipeline{padding:12px}.evrow{grid-template-columns:50px minmax(72px,1fr) 42px 52px 52px minmax(88px,1fr);font-size:10px;gap:4px;padding:6px}.card{padding:14px}#app-status{align-items:flex-start}}
+    @media(max-width:680px){body{padding:12px}.room-controls{width:100%}.room-select{flex:1;min-width:0}.room-input{flex:1;min-width:110px}.charts-grid,.athlete-grid,.two-col{grid-template-columns:minmax(0,1fr)}.metrics{gap:6px}.metric-val{font-size:22px}.pipeline{padding:12px}.events-scroll{overflow-x:auto;overscroll-behavior-x:contain}.evhead,.evrow{min-width:400px;grid-template-columns:50px minmax(72px,1fr) 42px 52px 52px minmax(88px,1fr);gap:4px}.evhead{font-size:10px;padding:6px 8px}.evrow{font-size:10px;padding:6px}.card{padding:14px}#app-status{align-items:flex-start}}
     @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+    html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+    body{line-height:1.5}
+    h1,h2,h3,.card-title{text-wrap:balance}
+    p,.empty-state,.inline-error{ text-wrap:pretty}
+    header{padding-bottom:18px}
+    .brand-caption{margin-top:5px;color:var(--muted);font-size:12px}
+    .dashboard-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+    .dashboard-nav{display:inline-flex;min-height:40px;align-items:center;gap:6px;padding:0 12px;border:1px solid #304052;border-radius:10px;background:rgba(17,24,33,.72);color:#c6d4e2;text-decoration:none;font-size:12px;font-weight:550}
+    .dashboard-nav:hover{border-color:#4c6680;background:#192635;color:#f0f6fc}
+    .room-btn,.rec-btn,.dashboard-nav{border-radius:10px}
+    .room-btn,.rec-btn{box-shadow:0 1px 2px rgba(0,0,0,.2)}
+    .room-btn:active,.rec-btn:active:not(:disabled),.dashboard-nav:active{transform:scale(.96)}
+    .card,.athlete-card,.pipeline{border-radius:16px;box-shadow:0 0 0 1px rgba(230,237,243,.045),0 12px 32px rgba(0,0,0,.16)}
+    .card{padding:20px}
+    .athlete-card{padding:20px}
+    .metric{border-radius:11px;background:rgba(8,13,19,.62);padding:15px 10px}
+    .metric-val{font-size:clamp(24px,2.4vw,30px);letter-spacing:-.035em}
+    .metric-lbl{font-size:11px;color:#91a1b2;margin-top:6px}
+    .metric-unit{font-size:10px}
+    .athlete-header{margin-bottom:16px}
+    .role-badge{border-radius:7px;padding:4px 9px}
+    .pipeline{min-height:88px}
+    .pi{width:38px;height:38px;border-radius:11px;box-shadow:inset 0 1px rgba(230,237,243,.06)}
+    .pi{color:#9db0c3;font-size:11px;font-weight:700;letter-spacing:.04em}
+    .pn-name,.pn-st{font-size:11px}
+    .card-title{margin-bottom:12px}
+    .room-input,.room-select{border-radius:9px;background-color:#0b1118}
+    .room-input::placeholder{color:#78899a}
+    .participant-chip{border-radius:999px}
+    .rec-status{border-radius:10px}
+    .evrow{min-height:36px;align-items:center}
+    .evhead{align-items:center}
+    .evrow:hover{background:rgba(99,169,255,.07)}
+    .alert-kind{flex:none;min-width:64px;padding:3px 7px;border:1px solid currentColor;border-radius:6px;color:#c6d4e2;font-size:10px;font-weight:650;text-align:center}
+    .athlete-grid>*,.charts-grid>*,.two-col>*,.lower-grid>*{min-width:0}
+    canvas{max-width:100%}
+    button:active:not(:disabled){transform:scale(.96)}
+    a,button,input,select{font:inherit}
+    .room-input,.room-select{font-size:12px}
+    @media(max-width:680px){
+      .dashboard-actions{justify-content:flex-start}
+      .dashboard-nav{min-height:42px}
+      .card,.athlete-card{padding:16px}
+      .pipeline{min-height:78px}
+    }
+    @media(prefers-reduced-motion:reduce){.pulse,.recdot.active{animation:none}}
   </style>
 </head>
 <body>
 
 <header>
   <div>
-    <h1>🏃 Videolog Sport</h1>
-    <div style="font-size:11px;color:#8b949e;margin-top:2px">Coach ↔ Trainee · GPS · FC · Cadence · Vitesse</div>
+    <h1>Videolog Sport</h1>
+    <div class="brand-caption">Suivi des trainees · GPS · FC · Cadence · Vitesse</div>
   </div>
-  <div style="display:flex;gap:8px;align-items:center">
+  <div class="dashboard-actions">
     <div class="room-controls">
       <select class="room-select" id="room-select" onchange="setCurrentRoom(this.value)"></select>
       <input class="room-input" id="room-input" placeholder="room-name">
       <button class="room-btn" onclick="createRoom()">Créer</button>
     </div>
-    <a href="player.html" style="font-size:11px;color:#58a6ff;text-decoration:none;padding:4px 10px;border:1px solid #21262d;border-radius:5px">🎬 Relecture</a>
-    <a href="/api/docs" target="_blank" style="font-size:11px;color:#8b949e;text-decoration:none;padding:4px 10px;border:1px solid #21262d;border-radius:5px">API</a>
+    <a class="dashboard-nav" href="player.html">Relecture</a>
+    <a class="dashboard-nav" href="/api/docs" target="_blank" rel="noreferrer">API</a>
     <div id="live-badge" class="badge offline">
       <div class="dot" id="live-dot" style="background:#f85149"></div>
       <span id="live-text">Connexion...</span>
@@ -124,63 +173,44 @@
   </div>
 </header>
 
-<div id="app-status" role="status" aria-live="polite"><span id="app-status-text"></span><button type="button" onclick="refreshDashboard()">Reessayer</button></div>
+<div id="app-status" role="status" aria-live="polite"><span id="app-status-text"></span><button type="button" onclick="refreshDashboard()">Réessayer</button></div>
 
-<!-- Stats Athletes : Coach | Trainee -->
-<div class="athlete-grid">
-  <div class="athlete-card">
-    <div class="athlete-header">
-      <span class="role-badge role-coach">🎓 Coach</span>
-      <span id="coach-name" style="font-size:12px;color:#8b949e">—</span>
-    </div>
-    <div class="metrics">
-      <div class="metric"><div class="metric-val hr-val" id="c-hr">--</div><div class="metric-lbl">FC <span class="metric-unit">bpm</span></div></div>
-      <div class="metric"><div class="metric-val spd-val" id="c-speed">--</div><div class="metric-lbl">Vitesse <span class="metric-unit">km/h</span></div></div>
-      <div class="metric"><div class="metric-val cad-val" id="c-cad">--</div><div class="metric-lbl">Cadence <span class="metric-unit">rpm</span></div></div>
-    </div>
+<section class="athlete-section" aria-labelledby="trainee-heading">
+  <h2 class="section-heading" id="trainee-heading">Télémétrie des trainees</h2>
+  <div class="athlete-grid" id="athlete-grid">
+    <div class="empty-state" id="trainee-empty">En attente des données des trainees.</div>
   </div>
-  <div class="athlete-card">
-    <div class="athlete-header">
-      <span class="role-badge role-trainee">🏃 Trainee</span>
-      <span id="trainee-name" style="font-size:12px;color:#8b949e">—</span>
-    </div>
-    <div class="metrics">
-      <div class="metric"><div class="metric-val hr-val" id="t-hr">--</div><div class="metric-lbl">FC <span class="metric-unit">bpm</span></div></div>
-      <div class="metric"><div class="metric-val spd-val" id="t-speed">--</div><div class="metric-lbl">Vitesse <span class="metric-unit">km/h</span></div></div>
-      <div class="metric"><div class="metric-val cad-val" id="t-cad">--</div><div class="metric-lbl">Cadence <span class="metric-unit">rpm</span></div></div>
-    </div>
-  </div>
-</div>
+</section>
 
 <!-- Pipeline -->
 <div class="pipeline">
-  <div class="pn"><div class="pi" style="background:#1a2935">👥</div><div class="pn-name">Clients</div><div class="pn-st ok" id="ps-sim">…</div></div>
+  <div class="pn"><div class="pi">CL</div><div class="pn-name">Clients</div><div class="pn-st ok" id="ps-sim">…</div></div>
   <div class="pa">→</div>
-  <div class="pn"><div class="pi" style="background:#1a2035">🔗</div><div class="pn-name">LiveKit</div><div class="pn-st ok" id="ps-lk">…</div></div>
+  <div class="pn"><div class="pi">LK</div><div class="pn-name">LiveKit</div><div class="pn-st ok" id="ps-lk">…</div></div>
   <div class="pa">→</div>
-  <div class="pn"><div class="pi" style="background:#2a2010">🤖</div><div class="pn-name">Agent</div><div class="pn-st ok" id="ps-agent">…</div></div>
+  <div class="pn"><div class="pi">AI</div><div class="pn-name">Agent</div><div class="pn-st ok" id="ps-agent">…</div></div>
   <div class="pa">→</div>
-  <div class="pn"><div class="pi" style="background:#1a2a1a">⚡</div><div class="pn-name">Redis</div><div class="pn-st ok" id="ps-redis">…</div></div>
+  <div class="pn"><div class="pi">RD</div><div class="pn-name">Redis</div><div class="pn-st ok" id="ps-redis">…</div></div>
   <div class="pa">→</div>
-  <div class="pn"><div class="pi" style="background:#202030">✍️</div><div class="pn-name">Writer</div><div class="pn-st ok" id="ps-writer">…</div></div>
+  <div class="pn"><div class="pi">WR</div><div class="pn-name">Writer</div><div class="pn-st ok" id="ps-writer">…</div></div>
   <div class="pa">→</div>
-  <div class="pn"><div class="pi" style="background:#1a2a1a">🍃</div><div class="pn-name">MongoDB</div><div class="pn-st ok" id="ps-mongo">…</div></div>
+  <div class="pn"><div class="pi">DB</div><div class="pn-name">MongoDB</div><div class="pn-st ok" id="ps-mongo">…</div></div>
   <div class="pa">→</div>
-  <div class="pn"><div class="pi" style="background:#1a2535">📦</div><div class="pn-name">MinIO</div><div class="pn-st ok" id="ps-minio">…</div></div>
+  <div class="pn"><div class="pi">S3</div><div class="pn-name">MinIO</div><div class="pn-st ok" id="ps-minio">…</div></div>
 </div>
 
 <!-- Charts -->
 <div class="charts-grid">
   <div class="card">
-    <div class="card-title">❤️ Fréquence cardiaque (bpm)<a id="export-link" href="/api/telemetry/export?room=poc-room" target="_blank" style="color:#58a6ff;text-decoration:none;font-weight:400">⬇ CSV</a></div>
+    <div class="card-title">Fréquence cardiaque (bpm)<a id="export-link" href="/api/telemetry/export?room=poc-room" target="_blank" rel="noreferrer" style="color:#58a6ff;text-decoration:none;font-weight:400">Exporter CSV</a></div>
     <canvas id="ch-hr" class="mini"></canvas>
   </div>
   <div class="card">
-    <div class="card-title">⚡ Vitesse (km/h)</div>
+    <div class="card-title">Vitesse (km/h)</div>
     <canvas id="ch-speed" class="mini"></canvas>
   </div>
   <div class="card">
-    <div class="card-title">🔄 Cadence (rpm)</div>
+    <div class="card-title">Cadence (rpm)</div>
     <canvas id="ch-cad" class="mini"></canvas>
   </div>
 </div>
@@ -188,8 +218,8 @@
 <!-- Room + Recording -->
 <div class="two-col">
   <div class="card">
-    <div class="card-title">👥 Room <span id="room-label" style="color:#58a6ff;font-family:monospace;font-weight:400">poc-room</span>
-      <span id="rec-auto-badge" style="display:none;background:#2d1f1f;color:#f85149;padding:1px 6px;border-radius:4px;font-size:10px">🔴 AUTO</span>
+    <div class="card-title">Room <span id="room-label" style="color:#58a6ff;font-family:monospace;font-weight:400">poc-room</span>
+      <span id="rec-auto-badge" style="display:none;background:#2d1f1f;color:#f85149;padding:1px 6px;border-radius:4px;font-size:10px">AUTO</span>
     </div>
     <div style="margin-bottom:8px;font-size:11px;color:#6e7681">
       Enregistrement auto dès <b style="color:#f0f6fc">2 participants</b> · arrêt si &lt; 2 (délai 10s)
@@ -198,11 +228,11 @@
     <div id="rc-log" style="font-family:monospace;font-size:10px;color:#6e7681;max-height:60px;overflow-y:auto"></div>
   </div>
   <div class="card">
-    <div class="card-title">🔴 Enregistrement Egress
+    <div class="card-title">Enregistrement Egress
       <div style="display:flex;gap:5px">
         <select style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;padding:3px 6px;font-size:10px" id="rec-layout"><option value="speaker">Speaker</option><option value="grid">Grid</option></select>
-        <button class="rec-btn btn-start" id="btn-start" onclick="startRec()">⏺ Start</button>
-        <button class="rec-btn btn-stop"  id="btn-stop"  onclick="stopRec()" disabled>⏹ Stop</button>
+        <button class="rec-btn btn-start" id="btn-start" onclick="startRec()">Démarrer</button>
+        <button class="rec-btn btn-stop"  id="btn-stop"  onclick="stopRec()" disabled>Arrêter</button>
       </div>
     </div>
     <div class="rec-status"><div class="recdot idle" id="recdot"></div><span id="rec-txt">Prêt</span><span style="margin-left:auto;font-family:monospace;color:#444" id="rec-timer"></span></div>
@@ -213,18 +243,20 @@
 <!-- Alertes + GPS + Events -->
 <div class="lower-grid">
   <div class="card">
-    <div class="card-title">📋 Télémétrie récente</div>
-    <div style="display:grid;grid-template-columns:60px 100px 60px 60px 60px 1fr;gap:6px;padding:3px 8px;font-size:9px;color:#6e7681;text-transform:uppercase;margin-bottom:2px">
-      <span>PTS</span><span>Participant</span><span>FC</span><span>Vitesse</span><span>Cadence</span><span>GPS</span>
+    <div class="card-title">Télémétrie récente</div>
+    <div class="events-scroll">
+      <div class="evhead">
+        <span>PTS</span><span>Participant</span><span>FC</span><span>Vitesse</span><span>Cadence</span><span>GPS</span>
+      </div>
+      <div id="events-list"></div>
     </div>
-    <div id="events-list"></div>
   </div>
   <div class="card">
-    <div class="card-title">🚨 Alertes sportives <span id="alert-badge" style="background:#2d1f1f;color:#f85149;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:400">0</span></div>
+    <div class="card-title">Alertes sportives <span id="alert-badge" style="background:#2d1f1f;color:#f85149;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:400">0</span></div>
     <div id="alerts-list"><div style="color:#444;font-size:12px">Aucune alerte</div></div>
   </div>
   <div class="card">
-    <div class="card-title">🗺️ Trajectoire GPS</div>
+    <div class="card-title">Trajectoire GPS</div>
     <canvas id="gps-canvas"></canvas>
   </div>
 </div>
@@ -300,95 +332,118 @@ function makeChart(canvas, config) {
   }
 }
 
-// Derniere valeur par role
-const last = { coach:{}, trainee:{} };
-
 // ── Charts ────────────────────────────────────────────────────────────────────
-const mkChart = (id, c1, c2) => makeChart(document.getElementById(id), {
-  type:'line',
-  data:{ labels:[], datasets:[
-    { data:[], borderColor:c1, backgroundColor:c1+'18', fill:true, borderWidth:1.5, pointRadius:0, tension:0.4 },
-    ...(c2?[{ data:[], borderColor:c2, backgroundColor:'transparent', borderWidth:1.5, pointRadius:0, tension:0.4, borderDash:[4,3] }]:[])
-  ]},
-  options:{ responsive:true, maintainAspectRatio:true, animation:false,
-    plugins:{ legend:{ display: c2?true:false, labels:{ color:'#8b949e', font:{size:10}, boxWidth:12, padding:8 } } },
-    scales:{ x:{display:false}, y:{ grid:{color:'#21262d'}, ticks:{color:'#8b949e',font:{size:10}} } } }
-});
+const TRAINEE_COLORS = ['#37c978', '#63a9ff', '#e3b341', '#c084fc', '#fb7185', '#22d3ee', '#f97316', '#a3e635'];
+const traineeCards = new Map();
+let traineeSeries = [];
 
-// HR chart: rouge trainee, bleu coach — labels pour distinguer
-const hrChart  = makeChart(document.getElementById('ch-hr'), {
-  type:'line',
-  data:{ labels:[], datasets:[
-    { label:'Trainee HR', data:[], borderColor:'#f85149', backgroundColor:'#f8514918', fill:true, borderWidth:1.5, pointRadius:0, tension:0.4 },
-    { label:'Coach HR',   data:[], borderColor:'#58a6ff', backgroundColor:'transparent', borderWidth:1.5, pointRadius:0, tension:0.4, borderDash:[4,3] },
-  ]},
-  options:{ responsive:true, maintainAspectRatio:true, animation:false,
-    plugins:{ legend:{ display:true, labels:{ color:'#8b949e', font:{size:10}, boxWidth:12, padding:8 } } },
-    scales:{ x:{display:false}, y:{ min:50, grid:{color:'#21262d'}, ticks:{color:'#8b949e',font:{size:10}} } } }
-});
+function createTraineeChart(id, min) {
+  return makeChart(document.getElementById(id), {
+    type: 'line',
+    data: { labels: [], datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      animation: false,
+      plugins: { legend: { display: true, labels: { color: '#8b949e', font: { size: 10 }, boxWidth: 12, padding: 8 } } },
+      scales: {
+        x: { display: false },
+        y: { ...(min == null ? {} : { min }), grid: { color: '#21262d' }, ticks: { color: '#8b949e', font: { size: 10 } } }
+      }
+    }
+  });
+}
 
-const spdChart = mkChart('ch-speed', '#3fb950', '#58a6ff');
-const cadChart = mkChart('ch-cad', '#e3b341', '#EF9F27');
+const hrChart = createTraineeChart('ch-hr', 50);
+const spdChart = createTraineeChart('ch-speed');
+const cadChart = createTraineeChart('ch-cad');
 
-// Label dataset
-if (spdChart.data.datasets[1]) spdChart.data.datasets[1].label = 'Coach';
-spdChart.data.datasets[0].label = 'Trainee';
-if (cadChart.data.datasets[1]) cadChart.data.datasets[1].label = 'Coach';
-cadChart.data.datasets[0].label = 'Trainee';
+function traineeColor(index) {
+  return TRAINEE_COLORS[index % TRAINEE_COLORS.length];
+}
+
+function updateTraineeCharts(series) {
+  const ordered = [...series].sort((a, b) => Number(a.pts_ms) - Number(b.pts_ms));
+  const names = [...new Set(ordered.map(point => point.participant || 'Trainee'))];
+  const labels = ordered.map(point => displayNumber(Number(point.pts_ms) / 1000, 1));
+
+  [
+    [hrChart, 'heart_rate'],
+    [spdChart, 'speed'],
+    [cadChart, 'cadence']
+  ].forEach(([chart, field]) => {
+    chart.data.labels = labels;
+    chart.data.datasets = names.map((name, index) => {
+      const color = traineeColor(index);
+      return {
+        label: name,
+        data: ordered.map(point => {
+          if ((point.participant || 'Trainee') !== name || point[field] == null) return null;
+          const value = Number(point[field]);
+          return Number.isFinite(value) ? value : null;
+        }),
+        borderColor: color,
+        backgroundColor: `${color}18`,
+        fill: false,
+        borderWidth: 1.8,
+        pointRadius: 0,
+        tension: 0.35
+      };
+    });
+    chart.update('none');
+  });
+}
 
 // GPS
 const gpsCanvas = document.getElementById('gps-canvas');
 const gpsCtx = gpsCanvas?.getContext?.('2d') || null;
-let gpsData = { coach:[], trainee:[] };
+let gpsData = new Map();
 
 function drawGps() {
   if (!gpsCtx || !gpsCanvas) return;
   const W = gpsCanvas.width  = gpsCanvas.clientWidth;
   const H = gpsCanvas.height = gpsCanvas.clientHeight || 140;
   gpsCtx.clearRect(0,0,W,H);
-  const clean = points => points.filter(d => Number.isFinite(d.lat) && Number.isFinite(d.lng));
-  gpsData.coach = clean(gpsData.coach);
-  gpsData.trainee = clean(gpsData.trainee);
-  const all = [...gpsData.coach, ...gpsData.trainee];
+  const trails = [...gpsData.entries()].map(([name, points], index) => ({
+    name,
+    color: traineeColor(index),
+    points: points.filter(point => Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng)))
+  }));
+  const all = trails.flatMap(trail => trail.points);
   if (!all.length) return;
-  const lats = all.map(d=>d.lat), lngs = all.map(d=>d.lng);
+  const lats = all.map(point => Number(point.lat)), lngs = all.map(point => Number(point.lng));
   const minLat=Math.min(...lats), maxLat=Math.max(...lats)+.0001;
   const minLng=Math.min(...lngs), maxLng=Math.max(...lngs)+.0001;
   const px=(lng,lat)=>[ 10+((lng-minLng)/(maxLng-minLng))*(W-20), H-10-((lat-minLat)/(maxLat-minLat))*(H-20) ];
-  // Trainee — vert
-  if (gpsData.trainee.length > 1) {
-    gpsCtx.beginPath(); gpsCtx.strokeStyle='#238636'; gpsCtx.lineWidth=2;
-    gpsData.trainee.forEach((d,i)=>{ const [x,y]=px(d.lng,d.lat); i===0?gpsCtx.moveTo(x,y):gpsCtx.lineTo(x,y); });
+  trails.forEach(trail => {
+    if (!trail.points.length) return;
+    gpsCtx.beginPath();
+    gpsCtx.strokeStyle = trail.color;
+    gpsCtx.lineWidth = 2;
+    trail.points.forEach((point, index) => {
+      const [x, y] = px(Number(point.lng), Number(point.lat));
+      index === 0 ? gpsCtx.moveTo(x, y) : gpsCtx.lineTo(x, y);
+    });
     gpsCtx.stroke();
-    const last = gpsData.trainee[gpsData.trainee.length-1];
-    const [x,y] = px(last.lng, last.lat);
-    gpsCtx.beginPath(); gpsCtx.arc(x,y,5,0,Math.PI*2); gpsCtx.fillStyle='#3fb950'; gpsCtx.fill();
+    const lastPoint = trail.points[trail.points.length - 1];
+    const [x, y] = px(Number(lastPoint.lng), Number(lastPoint.lat));
+    gpsCtx.beginPath();
+    gpsCtx.arc(x, y, 4, 0, Math.PI * 2);
+    gpsCtx.fillStyle = trail.color;
+    gpsCtx.fill();
+  });
+  gpsCtx.font = '10px sans-serif';
+  trails.slice(0, 5).forEach((trail, index) => {
+    const y = 14 + index * 13;
+    gpsCtx.fillStyle = trail.color;
+    gpsCtx.fillRect(8, y - 7, 8, 8);
+    gpsCtx.fillStyle = '#c9d1d9';
+    gpsCtx.fillText(trail.name, 21, y);
+  });
+  if (trails.length > 5) {
+    gpsCtx.fillStyle = '#8b9aab';
+    gpsCtx.fillText(`+${trails.length - 5}`, 8, 14 + 5 * 13);
   }
-  // Coach — bleu
-  if (gpsData.coach.length > 1) {
-    gpsCtx.beginPath(); gpsCtx.strokeStyle='#185FA5'; gpsCtx.lineWidth=1.5; gpsCtx.setLineDash([4,3]);
-    gpsData.coach.forEach((d,i)=>{ const [x,y]=px(d.lng,d.lat); i===0?gpsCtx.moveTo(x,y):gpsCtx.lineTo(x,y); });
-    gpsCtx.stroke(); gpsCtx.setLineDash([]);
-    const last = gpsData.coach[gpsData.coach.length-1];
-    const [x,y] = px(last.lng, last.lat);
-    gpsCtx.beginPath(); gpsCtx.arc(x,y,4,0,Math.PI*2); gpsCtx.fillStyle='#58a6ff'; gpsCtx.fill();
-  }
-  // Légende
-  gpsCtx.font='10px sans-serif';
-  gpsCtx.fillStyle='#3fb950'; gpsCtx.fillRect(8,H-22,10,8); gpsCtx.fillStyle='#8b949e'; gpsCtx.fillText('Trainee',22,H-15);
-  gpsCtx.fillStyle='#58a6ff'; gpsCtx.fillRect(78,H-22,10,8); gpsCtx.fillStyle='#8b949e'; gpsCtx.fillText('Coach',92,H-15);
-}
-
-function pushChart(chart, label, traineeVal, coachVal) {
-  const MAX = 100;
-  chart.data.labels.push(label);
-  chart.data.datasets[0].data.push(traineeVal);
-  if (coachVal !== undefined && chart.data.datasets[1]) chart.data.datasets[1].data.push(coachVal);
-  if (chart.data.labels.length > MAX) {
-    chart.data.labels.shift();
-    chart.data.datasets.forEach(ds=>ds.data.shift());
-  }
-  chart.update('none');
 }
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
@@ -420,16 +475,7 @@ function connectSSE() {
     const d = parseSse(e); if (!d) return;
     if (d.room_name && d.room_name !== currentRoom) return;
     const role = d.role || 'trainee';
-    // Mettre a jour les cartes athletes
-    if (role === 'coach') {
-      document.getElementById('c-hr').textContent    = d.heart_rate ?? '--';
-      document.getElementById('c-speed').textContent = displayNumber(d.speed, 1);
-      document.getElementById('c-cad').textContent   = d.cadence ?? '--';
-    } else {
-      document.getElementById('t-hr').textContent    = d.heart_rate ?? '--';
-      document.getElementById('t-speed').textContent = displayNumber(d.speed, 1);
-      document.getElementById('t-cad').textContent   = d.cadence ?? '--';
-    }
+    if (role === 'trainee') updateTraineeCard(d);
     setLive(true);
   });
   es.addEventListener('alert', e => {
@@ -443,18 +489,18 @@ function connectSSE() {
     if (roomName && roomName !== currentRoom) return;
     const isAuto = d.auto ? ' (auto)' : '';
     if (d.type==='started' || d.event==='started') {
-      addLog(`🔴 Enregistrement démarré${isAuto}`, '#f85149');
+      addLog(`Enregistrement démarré${isAuto}`, '#f85149');
       document.getElementById('rec-auto-badge').style.display = d.auto ? 'inline' : 'none';
       if (!egressId) setRecState('active', d.egress_id);
     }
-    if (d.type==='ended' || d.event==='ended') { addLog(`✅ Enregistrement terminé`, '#3fb950'); setRecState('idle'); fetchRecFiles(); }
-    if (d.type==='auto_stopped') { addLog(`⏹ Arrêt auto (${d.reason})`, '#58a6ff'); setRecState('idle'); }
+    if (d.type==='ended' || d.event==='ended') { addLog('Enregistrement terminé', '#3fb950'); setRecState('idle'); fetchRecFiles(); }
+    if (d.type==='auto_stopped') { addLog(`Arrêt automatique (${d.reason})`, '#58a6ff'); setRecState('idle'); }
   });
   es.addEventListener('room', e => {
     const d = parseSse(e); if (!d) return;
     if (d.room_name && d.room_name !== currentRoom) return;
-    if (d.type==='participant_joined') addLog(`👤 ${d.identity} rejoint (${d.count})`, '#3fb950');
-    if (d.type==='participant_left')   addLog(`👤 ${d.identity} parti (${d.count})`, '#e3b341');
+    if (d.type==='participant_joined') addLog(`${d.identity} a rejoint la room (${d.count})`, '#3fb950');
+    if (d.type==='participant_left')   addLog(`${d.identity} a quitté la room (${d.count})`, '#e3b341');
     fetchRoomState();
   });
   es.onerror = () => {
@@ -481,63 +527,23 @@ async function pollStats() {
 
 async function pollSeries() {
   try {
-    const data = await apiJson(`${API}/telemetry/series?room=${encodeURIComponent(currentRoom)}&limit=150`);
+    const data = await apiJson(`${API}/telemetry/series?room=${encodeURIComponent(currentRoom)}&role=trainee&limit=150`);
     if (!Array.isArray(data)) throw new Error('Série de télémétrie invalide');
-    if (!data.length) {
-      [hrChart, spdChart, cadChart].forEach(chart => {
-        chart.data.labels = [];
-        chart.data.datasets.forEach(ds => ds.data = []);
-        chart.update('none');
-      });
-      gpsData = { coach: [], trainee: [] };
-      drawGps();
-      return;
-    }
+    traineeSeries = data.filter(point => point.role === 'trainee');
+    const latestByTrainee = new Map();
+    [...traineeSeries]
+      .sort((a, b) => Number(a.pts_ms) - Number(b.pts_ms))
+      .forEach(point => latestByTrainee.set(point.participant || 'Trainee', point));
+    latestByTrainee.forEach(updateTraineeCard);
+    updateTraineeCharts(traineeSeries);
 
-    // Separer coach et trainee
-    const coach   = data.filter(d=>d.role==='coach');
-    const trainee = data.filter(d=>d.role==='trainee');
-
-    // Labels communs (pts_ms du trainee ou coach selon dispo)
-    const all = data.sort((a,b)=>a.pts_ms-b.pts_ms);
-    const labels = all.map(d=>displayNumber(Number(d.pts_ms)/1000,1));
-
-    // Reconstruire tous les charts depuis la serie complete
-    hrChart.data.labels = labels;
-    hrChart.data.datasets[0].data = all.map(d=>d.role==='trainee'?d.heart_rate:null);
-    hrChart.data.datasets[1].data = all.map(d=>d.role==='coach'?d.heart_rate:null);
-    hrChart.update('none');
-
-    spdChart.data.labels = labels;
-    spdChart.data.datasets[0].data = all.map(d=>d.role==='trainee'?d.speed:null);
-    spdChart.data.datasets[1].data = all.map(d=>d.role==='coach'?d.speed:null);
-    spdChart.update('none');
-
-    cadChart.data.labels = labels;
-    cadChart.data.datasets[0].data = all.map(d=>d.role==='trainee'?d.cadence:null);
-    cadChart.data.datasets[1].data = all.map(d=>d.role==='coach'?d.cadence:null);
-    cadChart.update('none');
-
-    // GPS par role
-    gpsData.trainee = trainee.map(d=>({lat:d.lat,lng:d.lng}));
-    gpsData.coach   = coach.map(d=>({lat:d.lat,lng:d.lng}));
+    gpsData = new Map();
+    traineeSeries.forEach(point => {
+      const name = point.participant || 'Trainee';
+      if (!gpsData.has(name)) gpsData.set(name, []);
+      gpsData.get(name).push({ lat: point.lat, lng: point.lng });
+    });
     drawGps();
-
-    // Mise a jour cartes athletes avec la derniere valeur
-    const lastTrainee = trainee[trainee.length-1];
-    const lastCoach   = coach[coach.length-1];
-    if (lastTrainee) {
-      document.getElementById('t-hr').textContent    = lastTrainee.heart_rate ?? '--';
-      document.getElementById('t-speed').textContent = displayNumber(lastTrainee.speed, 1);
-      document.getElementById('t-cad').textContent   = lastTrainee.cadence ?? '--';
-      document.getElementById('trainee-name').textContent = trainee[0]?.participant || '—';
-    }
-    if (lastCoach) {
-      document.getElementById('c-hr').textContent    = lastCoach.heart_rate ?? '--';
-      document.getElementById('c-speed').textContent = displayNumber(lastCoach.speed, 1);
-      document.getElementById('c-cad').textContent   = lastCoach.cadence ?? '--';
-      document.getElementById('coach-name').textContent = coach[0]?.participant || '—';
-    }
   } catch(error) { showAppError(error, 'Chargement des graphiques'); }
 }
 
@@ -546,9 +552,37 @@ function displayNumber(value, digits = 0) {
   return value == null || !Number.isFinite(number) ? '--' : number.toFixed(digits);
 }
 
+function updateTraineeCard(point) {
+  if (point.role && point.role !== 'trainee') return;
+  const name = String(point.participant || 'Trainee');
+  let card = traineeCards.get(name);
+  if (!card) {
+    card = document.createElement('article');
+    card.className = 'athlete-card';
+    card.innerHTML = `
+      <div class="athlete-header">
+        <span class="role-badge role-trainee">Trainee</span>
+        <span class="athlete-name"></span>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val hr-val" data-metric="heart_rate">--</div><div class="metric-lbl">FC <span class="metric-unit">bpm</span></div></div>
+        <div class="metric"><div class="metric-val spd-val" data-metric="speed">--</div><div class="metric-lbl">Vitesse <span class="metric-unit">km/h</span></div></div>
+        <div class="metric"><div class="metric-val cad-val" data-metric="cadence">--</div><div class="metric-lbl">Cadence <span class="metric-unit">rpm</span></div></div>
+      </div>`;
+    card.querySelector('.athlete-name').textContent = name;
+    traineeCards.set(name, card);
+    document.getElementById('trainee-empty')?.remove();
+    document.getElementById('athlete-grid').append(card);
+  }
+
+  card.querySelector('[data-metric="heart_rate"]').textContent = point.heart_rate ?? '--';
+  card.querySelector('[data-metric="speed"]').textContent = displayNumber(point.speed, 1);
+  card.querySelector('[data-metric="cadence"]').textContent = point.cadence ?? '--';
+}
+
 async function pollEvents() {
   try {
-    const data = await apiJson(`${API}/telemetry/latest?room=${encodeURIComponent(currentRoom)}&limit=10`);
+    const data = await apiJson(`${API}/telemetry/latest?room=${encodeURIComponent(currentRoom)}&role=trainee&limit=10`);
     if (!Array.isArray(data)) throw new Error('Liste des événements invalide');
     if (!data.length) {
       document.getElementById('events-list').innerHTML = '<div class="empty-state">Aucune télémétrie reçue pour cette room.</div>';
@@ -556,10 +590,9 @@ async function pollEvents() {
     }
     document.getElementById('events-list').innerHTML = data.map(d=>{
       const t=d.telemetry||{}, g=t.gps||{};
-      const roleColor = t.role==='coach'?'#58a6ff':'#3fb950';
       return `<div class="evrow">
         <span class="hi">${displayNumber(Number(d.pts_ms)/1000,1)}s</span>
-        <span style="color:${roleColor}">${escapeHtml(d.participant||'—')}</span>
+        <span>${escapeHtml(d.participant||'—')}</span>
         <span class="hi" style="color:#f85149">${escapeHtml(t.heart_rate ?? '—')}</span>
         <span>${displayNumber(t.speed,1)}</span>
         <span style="color:#e3b341">${escapeHtml(t.cadence ?? '—')}</span>
@@ -571,7 +604,7 @@ async function pollEvents() {
 
 async function pollAlerts() {
   try {
-    const data = await apiJson(`${API}/alerts?room=${encodeURIComponent(currentRoom)}&limit=8`);
+    const data = await apiJson(`${API}/alerts?room=${encodeURIComponent(currentRoom)}&role=trainee&limit=8`);
     if (!Array.isArray(data)) throw new Error('Liste des alertes invalide');
     if (!data.length) {
       document.getElementById('alerts-list').innerHTML = '<div class="empty-state">Aucune alerte active pour le moment.</div>';
@@ -585,10 +618,10 @@ async function pollAlerts() {
 }
 
 function alertHTML(d) {
-  const icons = { hr_max:'💓', hr_low:'💙', speed_max:'⚡' };
   const alertType = ['hr_max', 'hr_low', 'speed_max'].includes(d.type) ? d.type : 'unknown';
+  const alertLabels = { hr_max:'FC élevée', hr_low:'FC basse', speed_max:'Vitesse élevée' };
   return `<div class="alert-item alert-${alertType}">
-    <span>${icons[d.type]||'⚠️'}</span>
+    <span class="alert-kind">${alertLabels[alertType]||'Alerte'}</span>
     <div>
       <div style="font-weight:500;font-size:12px">${escapeHtml(d.message||d.type||'Alerte')}</div>
       <div style="color:#8b949e;font-size:10px">${escapeHtml(d.participant||'—')} · ${displayNumber(Number(d.pts_ms)/1000,1)}s</div>
@@ -597,6 +630,7 @@ function alertHTML(d) {
 }
 
 function addAlert(d) {
+  if (!traineeCards.has(String(d.participant || ''))) return;
   const list = document.getElementById('alerts-list');
   if (list.querySelector('.empty-state')) list.replaceChildren();
   list.insertAdjacentHTML('afterbegin', alertHTML(d));
@@ -630,7 +664,7 @@ async function startRec() {
     if (d?.error) throw new Error(d.error);
     if (!d?.egress_id) throw new Error('Le serveur n’a pas retourné l’identifiant Egress');
     setRecState('active', d.egress_id);
-    addLog('▶ Enregistrement manuel démarré', '#3fb950');
+    addLog('Enregistrement manuel démarré', '#3fb950');
   } catch(error) { button.disabled = false; showAppError(error, 'Démarrage de l’enregistrement'); }
 }
 
@@ -685,7 +719,7 @@ async function fetchRecFiles() {
       <div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #21262d;font-size:11px">
         <span style="color:#58a6ff;font-family:monospace;font-size:10px">${escapeHtml(String(f.key||'Fichier').split('/').pop())}</span>
         <span style="color:#8b949e">${displayNumber(f.size_mb,1)} MB</span>
-        <a href="${escapeHtml(f.url)}" target="_blank" rel="noopener noreferrer" style="color:#3fb950;font-size:10px">⬇</a>
+        <a href="${escapeHtml(f.url)}" target="_blank" rel="noopener noreferrer" aria-label="Télécharger le fichier" style="color:#3fb950;font-size:10px">Télécharger</a>
       </div>`).join('');
   } catch(error) {
     document.getElementById('rec-files').innerHTML = `<div class="inline-error">${escapeHtml(error.message)}</div>`;
@@ -740,17 +774,16 @@ function updateRoomLabels() {
 
 function clearRoomData() {
   alertCount = 0;
-  gpsData = { coach:[], trainee:[] };
+  gpsData = new Map();
+  traineeSeries = [];
+  traineeCards.clear();
+  const athleteGrid = document.getElementById('athlete-grid');
+  athleteGrid.innerHTML = '<div class="empty-state" id="trainee-empty">En attente des données des trainees.</div>';
   [hrChart, spdChart, cadChart].forEach(chart => {
     chart.data.labels = [];
-    chart.data.datasets.forEach(ds => ds.data = []);
+    chart.data.datasets = [];
     chart.update('none');
   });
-  ['c-hr','c-speed','c-cad','t-hr','t-speed','t-cad'].forEach(id => {
-    document.getElementById(id).textContent = '--';
-  });
-  document.getElementById('coach-name').textContent = '—';
-  document.getElementById('trainee-name').textContent = '—';
   document.getElementById('events-list').innerHTML = '';
   document.getElementById('alerts-list').innerHTML = '<div style="color:#444;font-size:12px">Aucune alerte</div>';
   document.getElementById('alert-badge').textContent = '0';

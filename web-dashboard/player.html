@@ -26,7 +26,7 @@
     h1 { font-size: 18px; font-weight: 600; color: #f0f6fc; }
 
     .layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
 
     .player-card {
       background: #161b22; border: 1px solid #21262d; border-radius: 10px;
@@ -180,6 +180,57 @@
     @media(max-width:1000px){.layout{grid-template-columns:1fr}.sidebar{display:grid;grid-template-columns:1fr 1fr}.sidebar>.card:last-child{grid-column:1/-1}}
     @media(max-width:620px){body{padding:12px}header{gap:10px;flex-wrap:wrap}.sidebar{display:flex}.player-controls{padding:12px;gap:8px}.player-card video{max-height:48vh}.card{padding:14px}.gauges{gap:6px}.gauge{padding:10px 5px;min-height:76px}.gauge-val{font-size:24px}.map-head{align-items:flex-start;flex-direction:column}}
     @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+    html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+    body{line-height:1.5}
+    h1,h2,h3,.card-title{text-wrap:balance}
+    p,.player-subtle,.map-status,.rec-item-meta,.empty-state,.inline-error{text-wrap:pretty}
+    header{padding-bottom:18px}
+    h1{font-size:clamp(21px,2.4vw,28px);letter-spacing:-.035em}
+    .back{display:inline-flex;min-height:42px;align-items:center;padding:0 12px;border:1px solid #304052;border-radius:11px;background:rgba(17,24,33,.72);font-size:13px;font-weight:550;text-decoration:none;transition:border-color .16s ease,background .16s ease,transform .16s ease}
+    .back:hover{border-color:#4c6680;background:#192635;text-decoration:none}
+    .back:active{transform:scale(.96)}
+    .layout{gap:20px}
+    .layout>*,.sidebar>*{min-width:0}
+    canvas.mini{max-width:100%}
+    .player-card,.card{border-radius:16px;box-shadow:0 0 0 1px rgba(230,237,243,.045),0 12px 32px rgba(0,0,0,.16)}
+    .card{padding:20px}
+    .player-card video{outline:1px solid rgba(255,255,255,.08);outline-offset:-1px}
+    .no-video{color:var(--muted);background:radial-gradient(ellipse at center,rgba(40,76,111,.2),transparent 65%),#0b1118}
+    .no-video-title{font-size:15px;color:#c4d2e0;font-weight:550}
+    .player-controls{padding:16px 20px}
+    .player-meta{gap:5px}
+    .player-info{font-size:13px;font-weight:600;color:var(--text)}
+    .player-subtle{font-size:12px}
+    .pts-display{min-width:88px;padding:7px 11px;border-radius:10px}
+    .card-title{font-size:12px;letter-spacing:.07em;color:#bac8d7}
+    .gauges{gap:10px}
+    .gauge{border-radius:12px;padding:14px 10px;min-height:96px;box-shadow:inset 0 1px rgba(230,237,243,.025)}
+    .gauge-val{font-size:clamp(25px,2.5vw,32px);letter-spacing:-.035em}
+    .gauge-lbl{font-size:12px;color:#91a1b2}
+    .gauge-unit{font-size:11px}
+    .rec-list{gap:8px}
+    .rec-item{min-height:64px;border-radius:11px;transition:border-color .16s ease,background .16s ease,transform .16s ease}
+    .rec-item:active{transform:scale(.96)}
+    .rec-item-name{font-size:13px}
+    .rec-item-meta{font-size:12px}
+    #map{border-radius:12px;box-shadow:inset 0 0 0 1px rgba(230,237,243,.035)}
+    .map-head{margin-bottom:12px}
+    .timeline-wrap{padding:16px 20px 10px}
+    .timeline-bar{height:10px;border-radius:999px}
+    .timeline-progress{border-radius:999px}
+    .tl-tick{height:9px;border-radius:2px}
+    #app-status button{min-height:40px;padding:8px 13px;border-radius:9px;cursor:pointer}
+    .loading-state{color:var(--muted);font-size:13px}
+    button:active:not(:disabled){transform:scale(.96)}
+    @media(max-width:1000px){.layout{gap:14px}}
+    @media(max-width:620px){
+      .card{padding:16px}
+      .player-controls{padding:14px 16px}
+      .timeline-wrap{padding:14px 16px 8px}
+      .gauges{gap:7px}
+      .gauge{padding:12px 6px}
+    }
+    @media(prefers-reduced-motion:reduce){.rec-item:active,.back:active{transform:none}}
   </style>
 </head>
 <body>
@@ -188,19 +239,18 @@
   <a class="back" href="index.html">← Dashboard</a>
   <h1>Relecture des sessions</h1>
   <span id="sync-badge" style="font-size:11px;color:#3fb950;margin-left:auto;display:none">
-    Telemetrie synchronisee
+    Télémétrie synchronisée
   </span>
 </header>
 
-<div id="app-status" role="status" aria-live="polite"><span id="app-status-text"></span><button type="button" onclick="retryCurrent()">Reessayer</button></div>
+<div id="app-status" role="status" aria-live="polite"><span id="app-status-text"></span><button type="button" onclick="retryCurrent()">Réessayer</button></div>
 
 <div class="layout">
   <div>
     <div class="player-card">
       <div class="no-video" id="no-video-placeholder">
-        <div class="icon">🎥</div>
-        <div>Selectionner un enregistrement</div>
-        <div style="font-size:12px;color:#333">Les fichiers MP4 apparaissent apres arret de l'Egress</div>
+        <div class="no-video-title">Aucun enregistrement sélectionné</div>
+        <div class="player-subtle">Les fichiers MP4 apparaissent après l’arrêt de l’Egress</div>
       </div>
       <video id="player" controls preload="metadata" style="display:none"
              ontimeupdate="onTimeUpdate()"
@@ -209,29 +259,29 @@
              onerror="onVideoError()">
       </video>
       <div class="timeline-wrap">
-        <div class="timeline-bar" onclick="seekTimeline(event)" onkeydown="seekTimelineKey(event)" id="tl-bar" role="slider" aria-label="Position dans la video" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
+        <div class="timeline-bar" onclick="seekTimeline(event)" onkeydown="seekTimelineKey(event)" id="tl-bar" role="slider" aria-label="Position dans la vidéo" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
           <div class="timeline-progress" id="tl-progress"></div>
         </div>
         <div class="timeline-events" id="tl-events"></div>
       </div>
       <div class="player-controls">
         <div class="player-meta">
-          <span style="font-size:12px;color:#6e7681" id="player-info">Aucun fichier charge</span>
-          <span class="player-subtle">Lecture synchronisee avec la telemetrie</span>
+          <span class="player-info" id="player-info">Aucun fichier chargé</span>
+          <span class="player-subtle">Lecture synchronisée avec la télémétrie</span>
         </div>
         <span class="pts-display" id="pts-display">0.0s</span>
       </div>
     </div>
 
     <div class="card" style="margin-top:14px">
-      <div class="card-title">Vitesse synchronisee avec la video</div>
+      <div class="card-title">Vitesse synchronisée avec la vidéo</div>
       <canvas id="chart-speed-sync" class="mini"></canvas>
     </div>
   </div>
 
   <div class="sidebar">
     <div class="card telemetry-card">
-      <div class="card-title">Telemetrie au temps courant</div>
+      <div class="card-title">Télémétrie au temps courant</div>
       <div class="gauges">
         <div class="gauge">
           <div class="gauge-val" id="g-speed">--</div>
@@ -259,7 +309,7 @@
     <div class="card">
       <div class="card-title">Enregistrements disponibles</div>
       <div class="rec-list" id="rec-list">
-        <div style="color:#444;font-size:12px">Chargement...</div>
+        <div class="loading-state">Chargement…</div>
       </div>
     </div>
   </div>
@@ -455,7 +505,7 @@ function initMapTrack(data) {
   mapMarker = L.marker(latLngs[0], {
     icon: L.divIcon({
       className: '',
-      html: '<div class="map-avatar">🚴</div>',
+      html: '<div class="map-avatar" aria-hidden="true"></div>',
       iconSize: [28, 28],
       iconAnchor: [14, 14]
     })

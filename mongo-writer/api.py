@@ -134,33 +134,54 @@ async def stats(room: str | None = None):
 # ── Telemetry ──────────────────────────────────────────────────────────────────
 
 @app.get("/telemetry/latest")
-async def latest(room: str | None = None, limit: int = 20):
+async def latest(room: str | None = None, limit: int = 20, role: str | None = None):
     query = {"room_name": room} if room else {}
+    if role == "trainee":
+        query["$or"] = [{"telemetry.role": "trainee"}, {"telemetry.role": None}]
+    elif role:
+        query["telemetry.role"] = role
     return await col.find(query, {"_id": 0},
                           sort=[("ts", -1)], limit=limit).to_list(limit)
 
 
 @app.get("/telemetry/series")
-async def series(room: str = "poc-room", limit: int = 200):
+async def series(room: str = "poc-room", limit: int = 200, role: str | None = None):
+    query = {"room_name": room}
+    if role == "trainee":
+        query["$or"] = [{"telemetry.role": "trainee"}, {"telemetry.role": None}]
+    elif role:
+        query["telemetry.role"] = role
     docs = await col.find(
-        {"room_name": room},
+        query,
         {"_id": 0, "pts_ms": 1, "participant": 1,
          "telemetry.role": 1, "telemetry.speed": 1,
          "telemetry.heart_rate": 1, "telemetry.cadence": 1,
          "telemetry.gps": 1},
-        sort=[("pts_ms", 1)], limit=limit
+        sort=[("pts_ms", -1 if role else 1)], limit=limit
     ).to_list(limit)
-    return [{
-        "pts_ms":      d["pts_ms"],
-        "participant": d.get("participant", "unknown"),
-        "role":        d["telemetry"].get("role", "trainee"),
-        "speed":       d["telemetry"].get("speed", 0),
-        "heart_rate":  d["telemetry"].get("heart_rate", 0),
-        "cadence":     d["telemetry"].get("cadence", 0),
-        "lat":         d["telemetry"]["gps"]["lat"],
-        "lng":         d["telemetry"]["gps"]["lng"],
-        "altitude":    d["telemetry"]["gps"].get("altitude", 0),
-    } for d in docs]
+    if role:
+        docs.reverse()
+    series_data = []
+    for doc in docs:
+        telemetry = doc.get("telemetry")
+        if not isinstance(telemetry, dict):
+            telemetry = {}
+        gps = telemetry.get("gps")
+        if not isinstance(gps, dict):
+            gps = {}
+
+        series_data.append({
+            "pts_ms":      doc.get("pts_ms"),
+            "participant": doc.get("participant", "unknown"),
+            "role":        telemetry.get("role", "trainee"),
+            "speed":       telemetry.get("speed", 0),
+            "heart_rate":  telemetry.get("heart_rate", 0),
+            "cadence":     telemetry.get("cadence", 0),
+            "lat":         gps.get("lat"),
+            "lng":         gps.get("lng"),
+            "altitude":    gps.get("altitude", 0),
+        })
+    return series_data
 
 
 @app.get("/recordings/{egress_id}/telemetry")
@@ -251,9 +272,21 @@ async def export_csv(room: str = "poc-room"):
 # ── Alertes ────────────────────────────────────────────────────────────────────
 
 @app.get("/alerts")
-async def get_alerts(room: str = "poc-room", limit: int = 50):
+async def get_alerts(room: str = "poc-room", limit: int = 50, role: str | None = None):
+    query = {"room_name": room}
+    if role:
+        telemetry_query = {"room_name": room}
+        if role == "trainee":
+            telemetry_query["$or"] = [{"telemetry.role": "trainee"}, {"telemetry.role": None}]
+        else:
+            telemetry_query["telemetry.role"] = role
+        participants = await col.distinct(
+            "participant", telemetry_query)
+        if not participants:
+            return []
+        query["participant"] = {"$in": participants}
     docs = await alerts.find(
-        {"room_name": room}, {"_id": 0},
+        query, {"_id": 0},
         sort=[("ts", -1)], limit=limit
     ).to_list(limit)
     return docs
