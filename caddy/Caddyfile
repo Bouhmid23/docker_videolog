@@ -2,7 +2,16 @@
 	basic_auth {
 		{$DASHBOARD_AUTH_USER} {$DASHBOARD_AUTH_HASH}
 	}
-	reverse_proxy dashboard:80
+	@api_events path /api/events
+	handle @api_events {
+		uri strip_prefix /api
+		reverse_proxy dashboard-api:8000 {
+			flush_interval -1
+		}
+	}
+	handle {
+		reverse_proxy dashboard:80
+	}
 }
 
 lk.{$DOMAIN} {

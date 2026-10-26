@@ -66,16 +66,7 @@
     .participant-remove{border:1px solid #713b3b;border-radius:6px;background:#281a1d;color:#ffb4ad;padding:3px 7px;font-size:10px;cursor:pointer}
     .participant-remove:hover:not(:disabled){background:#3b2024}
     .participant-remove:disabled{opacity:.55;cursor:wait}
-    .lower-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(170px,.6fr);gap:14px;margin-bottom:14px}
-
-    /* Alerts */
-    .alert-item{display:flex;align-items:flex-start;gap:7px;padding:6px 8px;border-radius:5px;margin-bottom:4px;font-size:12px;line-height:1.4}
-    .alert-hr_max{background:#2d1f1f;border-left:3px solid #f85149}
-    .alert-hr_low{background:#1a2035;border-left:3px solid #58a6ff}
-    .alert-speed_max{background:#2a1f12;border-left:3px solid #e3b341}
-
-    /* GPS */
-    #gps-canvas{width:100%;height:140px}
+    .lower-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin-bottom:14px}
 
     /* Events table */
     .evrow{display:grid;grid-template-columns:60px 100px 60px 60px 60px 1fr;gap:6px;padding:4px 8px;border-radius:3px;border-bottom:1px solid #21262d;font-size:11px;color:#8b949e}
@@ -97,7 +88,7 @@
     .room-btn,.rec-btn{min-height:36px;padding:8px 14px;font-weight:600}
     .room-btn:hover,.rec-btn:hover:not(:disabled){transform:translateY(-1px)}
     .badge{padding:7px 12px}.charts-grid{gap:14px}.two-col{gap:14px}
-    #gps-canvas{height:180px}.evrow{grid-template-columns:68px minmax(80px,1.2fr) repeat(3,minmax(52px,.7fr)) minmax(100px,1.3fr);padding:8px;border-color:#202c39}
+    .evrow{grid-template-columns:68px minmax(80px,1.2fr) repeat(3,minmax(52px,.7fr)) minmax(100px,1.3fr);padding:8px;border-color:#202c39}
     #app-status{display:none;align-items:center;justify-content:space-between;gap:14px;padding:12px 16px;margin:0 0 16px;border:1px solid #8e3434;border-radius:10px;background:#281a1d;color:#ffb4ad;font-size:13px}
     #app-status.visible{display:flex}#app-status button{flex:none;border:1px solid #9e4540;border-radius:7px;background:#3b2024;color:#fff;padding:7px 11px;cursor:pointer}
     .empty-state,.inline-error{padding:14px;border:1px dashed #354354;border-radius:8px;color:var(--muted);font-size:12px;line-height:1.5}
@@ -243,9 +234,9 @@
   </div>
 </div>
 
-<!-- Alertes + GPS + Events -->
+<!-- Télémétrie récente -->
 <div class="lower-grid">
-  <div class="card">
+  <div class="card" style="grid-column:1/-1">
     <div class="card-title">Télémétrie récente</div>
     <div class="events-scroll">
       <div class="evhead">
@@ -254,25 +245,20 @@
       <div id="events-list"></div>
     </div>
   </div>
-  <div class="card">
-    <div class="card-title">Alertes sportives <span id="alert-badge" style="background:#2d1f1f;color:#f85149;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:400">0</span></div>
-    <div id="alerts-list"><div style="color:#444;font-size:12px">Aucune alerte</div></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Trajectoire GPS</div>
-    <canvas id="gps-canvas"></canvas>
-  </div>
 </div>
 
 <script>
 const API = '/api';
 let egressId = null, recStart = null, recTimer = null;
-let alertCount = 0;
 const roomLog = [];
 let currentRoom = 'poc-room';
 try { currentRoom = localStorage.getItem('videolog.currentRoom') || currentRoom; } catch {}
 let eventSource = null;
 let reconnectTimer = null;
+let sseConnectTimer = null;
+let apiConnected = false;
+let sseConnected = false;
+let sseLastActivityAt = 0;
 
 function showAppError(error, context = 'Erreur') {
   const message = error instanceof Error ? error.message : String(error || 'Erreur inconnue');
@@ -422,58 +408,6 @@ function updateTraineeCharts(series) {
   });
 }
 
-// GPS
-const gpsCanvas = document.getElementById('gps-canvas');
-const gpsCtx = gpsCanvas?.getContext?.('2d') || null;
-let gpsData = new Map();
-
-function drawGps() {
-  if (!gpsCtx || !gpsCanvas) return;
-  const W = gpsCanvas.width  = gpsCanvas.clientWidth;
-  const H = gpsCanvas.height = gpsCanvas.clientHeight || 140;
-  gpsCtx.clearRect(0,0,W,H);
-  const trails = [...gpsData.entries()].map(([name, points], index) => ({
-    name,
-    color: traineeColor(index),
-    points: points.filter(point => Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng)))
-  }));
-  const all = trails.flatMap(trail => trail.points);
-  if (!all.length) return;
-  const lats = all.map(point => Number(point.lat)), lngs = all.map(point => Number(point.lng));
-  const minLat=Math.min(...lats), maxLat=Math.max(...lats)+.0001;
-  const minLng=Math.min(...lngs), maxLng=Math.max(...lngs)+.0001;
-  const px=(lng,lat)=>[ 10+((lng-minLng)/(maxLng-minLng))*(W-20), H-10-((lat-minLat)/(maxLat-minLat))*(H-20) ];
-  trails.forEach(trail => {
-    if (!trail.points.length) return;
-    gpsCtx.beginPath();
-    gpsCtx.strokeStyle = trail.color;
-    gpsCtx.lineWidth = 2;
-    trail.points.forEach((point, index) => {
-      const [x, y] = px(Number(point.lng), Number(point.lat));
-      index === 0 ? gpsCtx.moveTo(x, y) : gpsCtx.lineTo(x, y);
-    });
-    gpsCtx.stroke();
-    const lastPoint = trail.points[trail.points.length - 1];
-    const [x, y] = px(Number(lastPoint.lng), Number(lastPoint.lat));
-    gpsCtx.beginPath();
-    gpsCtx.arc(x, y, 4, 0, Math.PI * 2);
-    gpsCtx.fillStyle = trail.color;
-    gpsCtx.fill();
-  });
-  gpsCtx.font = '10px sans-serif';
-  trails.slice(0, 5).forEach((trail, index) => {
-    const y = 14 + index * 13;
-    gpsCtx.fillStyle = trail.color;
-    gpsCtx.fillRect(8, y - 7, 8, 8);
-    gpsCtx.fillStyle = '#c9d1d9';
-    gpsCtx.fillText(trail.name, 21, y);
-  });
-  if (trails.length > 5) {
-    gpsCtx.fillStyle = '#8b9aab';
-    gpsCtx.fillText(`+${trails.length - 5}`, 8, 14 + 5 * 13);
-  }
-}
-
 // ── SSE ───────────────────────────────────────────────────────────────────────
 function parseSse(event) {
   try {
@@ -487,29 +421,57 @@ function parseSse(event) {
 }
 
 function connectSSE() {
+  if (sseConnectTimer) clearTimeout(sseConnectTimer);
+  if (reconnectTimer) clearTimeout(reconnectTimer);
   if (eventSource) eventSource.close();
   if (typeof EventSource === 'undefined') {
-    setLive(false);
+    sseConnected = false;
+    updateConnectionBadge('Live indisponible');
     showAppError('Ce navigateur ne prend pas en charge les événements temps réel.', 'Connexion');
     return;
   }
   let es;
-  try { es = new EventSource(`${API}/events?room=${encodeURIComponent(currentRoom)}`); }
-  catch (error) { setLive(false); showAppError(error, 'Connexion temps réel'); return; }
+  const roomName = currentRoom;
+  try { es = new EventSource(`${API}/events?room=${encodeURIComponent(roomName)}`); }
+  catch (error) {
+    sseConnected = false;
+    updateConnectionBadge('Live indisponible');
+    showAppError(error, 'Connexion temps réel');
+    return;
+  }
   eventSource = es;
-  es.onopen = () => { setLive(true); };
-  es.addEventListener('ping', () => setLive(true));
+  sseConnected = false;
+  updateConnectionBadge(apiConnected ? 'API OK · Live en attente' : 'Connexion…');
+  sseConnectTimer = setTimeout(() => {
+    if (eventSource !== es || es.readyState !== EventSource.CONNECTING) return;
+    es.close();
+    sseConnected = false;
+    updateConnectionBadge(apiConnected ? 'API OK · Live sans réponse' : 'Live sans réponse');
+    showAppError('Le flux temps réel ne répond pas. Nouvelle tentative automatique…', 'Live');
+    reconnectTimer = setTimeout(() => {
+      if (currentRoom === roomName && eventSource === es) connectSSE();
+    }, 5000);
+  }, 12000);
+  es.onopen = () => {
+    if (sseConnectTimer) clearTimeout(sseConnectTimer);
+    sseConnected = true;
+    sseLastActivityAt = Date.now();
+    updateConnectionBadge('LIVE');
+    clearAppError();
+  };
+  es.addEventListener('ping', () => {
+    sseConnected = true;
+    sseLastActivityAt = Date.now();
+    updateConnectionBadge('LIVE');
+  });
   es.addEventListener('telemetry', e => {
     const d = parseSse(e); if (!d) return;
     if (d.room_name && d.room_name !== currentRoom) return;
     const role = d.role || 'trainee';
     if (role === 'trainee') updateTraineeCard(d);
-    setLive(true);
-  });
-  es.addEventListener('alert', e => {
-    const d = parseSse(e); if (!d) return;
-    if (d.room_name && d.room_name !== currentRoom) return;
-    addAlert(d);
+    sseConnected = true;
+    sseLastActivityAt = Date.now();
+    updateConnectionBadge('LIVE');
   });
   es.addEventListener('egress', e => {
     const d = parseSse(e); if (!d) return;
@@ -523,18 +485,21 @@ function connectSSE() {
     }
     if (d.type==='ended' || d.event==='ended') { addLog('Enregistrement terminé', '#3fb950'); setRecState('idle'); fetchRecFiles(); }
     if (d.type==='auto_stopped') { addLog(`Arrêt automatique (${d.reason})`, '#58a6ff'); setRecState('idle'); }
+    sseLastActivityAt = Date.now();
   });
   es.addEventListener('room', e => {
     const d = parseSse(e); if (!d) return;
     if (d.room_name && d.room_name !== currentRoom) return;
     if (d.type==='participant_joined') addLog(`${d.identity} a rejoint la room (${d.count})`, '#3fb950');
     if (d.type==='participant_left')   addLog(`${d.identity} a quitté la room (${d.count})`, '#e3b341');
+    sseLastActivityAt = Date.now();
     fetchRoomState();
   });
   es.onerror = () => {
-    setLive(false);
+    if (sseConnectTimer) clearTimeout(sseConnectTimer);
+    sseConnected = false;
+    updateConnectionBadge(apiConnected ? 'API OK · Live interrompu' : 'Hors ligne');
     showAppError('Le flux temps réel est interrompu. Nouvelle tentative automatique…', 'Live');
-    // EventSource se reconnecte automatiquement ; évite les flux dupliqués.
   };
 }
 
@@ -543,6 +508,7 @@ async function pollStats() {
   try {
     const d = await apiJson(`${API}/stats?room=${encodeURIComponent(currentRoom)}`);
     if (!d || typeof d !== 'object') throw new Error('Statistiques invalides');
+    setApiConnected(true);
     const writerStatusKnown = d.writer_group_found === true
       && Number.isFinite(d.stream_pending)
       && Number.isFinite(d.stream_lag);
@@ -556,7 +522,10 @@ async function pollStats() {
     setPipe('ps-lk', 'État API');
     setPipe('ps-agent', d.last_event_ts ? 'Données reçues' : 'En attente');
     setPipe('ps-sim', d.total_events > 0 ? 'Actif' : 'En attente');
-  } catch (error) { showAppError(error, 'Chargement des statistiques'); }
+  } catch (error) {
+    setApiConnected(false);
+    showAppError(error, 'Chargement des statistiques');
+  }
 }
 
 async function pollMinioStatus() {
@@ -591,14 +560,6 @@ async function pollSeries() {
       .forEach(point => latestByTrainee.set(point.participant || 'Trainee', point));
     latestByTrainee.forEach(updateTraineeCard);
     updateTraineeCharts(traineeSeries);
-
-    gpsData = new Map();
-    traineeSeries.forEach(point => {
-      const name = point.participant || 'Trainee';
-      if (!gpsData.has(name)) gpsData.set(name, []);
-      gpsData.get(name).push({ lat: point.lat, lng: point.lng });
-    });
-    drawGps();
   } catch(error) { showAppError(error, 'Chargement des graphiques'); }
 }
 
@@ -655,43 +616,6 @@ async function pollEvents() {
       </div>`;
     }).join('');
   } catch(error) { showAppError(error, 'Chargement des événements'); }
-}
-
-async function pollAlerts() {
-  try {
-    const data = await apiJson(`${API}/alerts?room=${encodeURIComponent(currentRoom)}&role=trainee&limit=8`);
-    if (!Array.isArray(data)) throw new Error('Liste des alertes invalide');
-    if (!data.length) {
-      document.getElementById('alerts-list').innerHTML = '<div class="empty-state">Aucune alerte active pour le moment.</div>';
-      document.getElementById('alert-badge').textContent = '0';
-      return;
-    }
-    document.getElementById('alerts-list').innerHTML = data.map(alertHTML).join('');
-    alertCount = data.length;
-    document.getElementById('alert-badge').textContent = data.length;
-  } catch(error) { showAppError(error, 'Chargement des alertes'); }
-}
-
-function alertHTML(d) {
-  const alertType = ['hr_max', 'hr_low', 'speed_max'].includes(d.type) ? d.type : 'unknown';
-  const alertLabels = { hr_max:'FC élevée', hr_low:'FC basse', speed_max:'Vitesse élevée' };
-  return `<div class="alert-item alert-${alertType}">
-    <span class="alert-kind">${alertLabels[alertType]||'Alerte'}</span>
-    <div>
-      <div style="font-weight:500;font-size:12px">${escapeHtml(d.message||d.type||'Alerte')}</div>
-      <div style="color:#8b949e;font-size:10px">${escapeHtml(d.participant||'—')} · ${displayNumber(Number(d.pts_ms)/1000,1)}s</div>
-    </div>
-  </div>`;
-}
-
-function addAlert(d) {
-  if (!traineeCards.has(String(d.participant || ''))) return;
-  const list = document.getElementById('alerts-list');
-  if (list.querySelector('.empty-state')) list.replaceChildren();
-  list.insertAdjacentHTML('afterbegin', alertHTML(d));
-  alertCount++;
-  while (list.children.length > 8) list.lastElementChild.remove();
-  document.getElementById('alert-badge').textContent = alertCount;
 }
 
 async function fetchRoomState() {
@@ -796,11 +720,27 @@ function addLog(msg, color='#8b949e') {
   while (list.children.length > 15) list.lastElementChild.remove();
 }
 
-function setLive(v) {
-  document.getElementById('live-badge').className='badge '+(v?'live':'offline');
-  document.getElementById('live-dot').style.background = v?'#3fb950':'#f85149';
-  document.getElementById('live-dot').className = 'dot'+(v?' pulse':'');
-  document.getElementById('live-text').textContent = v?'LIVE':'Hors ligne';
+function updateConnectionBadge(label) {
+  const isConnected = sseConnected || apiConnected;
+  document.getElementById('live-badge').className='badge '+(isConnected?'live':'offline');
+  document.getElementById('live-dot').style.background = isConnected?'#3fb950':'#f85149';
+  document.getElementById('live-dot').className = 'dot'+(sseConnected?' pulse':'');
+  document.getElementById('live-text').textContent = label;
+}
+
+function setApiConnected(connected) {
+  apiConnected = connected;
+  if (sseConnected) {
+    updateConnectionBadge('LIVE');
+  } else if (connected) {
+    updateConnectionBadge(eventSource?.readyState === EventSource.CONNECTING
+      ? 'API OK · Live en attente'
+      : 'API OK · Live interrompu');
+  } else if (eventSource?.readyState === EventSource.CONNECTING) {
+    updateConnectionBadge('Connexion…');
+  } else {
+    updateConnectionBadge('Hors ligne');
+  }
 }
 
 function setPipe(id, txt) {
@@ -814,7 +754,7 @@ function setPipe(id, txt) {
 
 function refreshDashboard() {
   clearAppError();
-  pollStats(); pollSeries(); pollEvents(); pollAlerts(); fetchRoomState(); fetchRecFiles(); loadRooms();
+  pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles(); loadRooms();
   pollMinioStatus();
   if (typeof EventSource !== 'undefined' && (!eventSource || eventSource.readyState === EventSource.CLOSED)) connectSSE();
 }
@@ -829,8 +769,6 @@ function updateRoomLabels() {
 }
 
 function clearRoomData() {
-  alertCount = 0;
-  gpsData = new Map();
   traineeSeries = [];
   traineeCards.clear();
   const athleteGrid = document.getElementById('athlete-grid');
@@ -841,12 +779,9 @@ function clearRoomData() {
     chart.update('none');
   });
   document.getElementById('events-list').innerHTML = '';
-  document.getElementById('alerts-list').innerHTML = '<div style="color:#444;font-size:12px">Aucune alerte</div>';
-  document.getElementById('alert-badge').textContent = '0';
   document.getElementById('rc-participants').innerHTML = '<span style="color:#444;font-size:12px">Aucun participant</span>';
   document.getElementById('rc-log').innerHTML = '';
   roomLog.length = 0;
-  drawGps();
   setRecState('idle');
 }
 
@@ -873,7 +808,7 @@ async function setCurrentRoom(roomName) {
   clearRoomData();
   await loadRooms();
   connectSSE();
-  pollStats(); pollSeries(); pollEvents(); pollAlerts(); fetchRoomState(); fetchRecFiles();
+  pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles();
   pollMinioStatus();
   addLog(`Room active: ${currentRoom}`, '#58a6ff');
 }
@@ -898,7 +833,7 @@ async function createRoom() {
     await loadRooms();
     connectSSE();
     addLog(`Room créée: ${currentRoom}`, '#3fb950');
-    pollStats(); pollSeries(); pollEvents(); pollAlerts(); fetchRoomState(); fetchRecFiles();
+    pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles();
   } catch(error) {
     showAppError(error, 'Création de room');
   }
@@ -909,17 +844,27 @@ updateRoomLabels();
 loadRooms().then(() => {
   connectSSE();
   addLog(`Dashboard démarré · ${currentRoom}`, '#3fb950');
-  pollStats(); pollSeries(); pollEvents(); pollAlerts(); fetchRoomState(); fetchRecFiles();
+  pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles();
   pollMinioStatus();
 });
 setInterval(pollStats, 5000);
 setInterval(pollMinioStatus, 15000);
 setInterval(pollSeries, 2000);
 setInterval(pollEvents, 2000);
-setInterval(pollAlerts, 10000);
 setInterval(loadRooms, 10000);
 setInterval(fetchRoomState, 2000);
 setInterval(fetchRecFiles, 15000);
+setInterval(() => {
+  if (!sseConnected || Date.now() - sseLastActivityAt <= 45000) return;
+  const staleSource = eventSource;
+  staleSource?.close();
+  sseConnected = false;
+  updateConnectionBadge(apiConnected ? 'API OK · Live sans réponse' : 'Live sans réponse');
+  showAppError('Le flux temps réel est silencieux. Nouvelle tentative automatique…', 'Live');
+  reconnectTimer = setTimeout(() => {
+    if (eventSource === staleSource) connectSSE();
+  }, 5000);
+}, 10000);
 </script>
 </body>
 </html>
