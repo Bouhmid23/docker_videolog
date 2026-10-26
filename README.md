@@ -17,6 +17,8 @@ docker compose --profile proxy up -d
 
 Caddy obtient et renouvelle automatiquement les certificats. Le dashboard est disponible sur `https://dashboard.videolog.app` ; l'accès demandera l'utilisateur et le mot de passe configurés. `https://videolog.app` redirige vers le dashboard. L'application mobile utilise `https://api.videolog.app`, les clients LiveKit `wss://livekit.videolog.app` et les liens MinIO `https://minio.videolog.app`.
 
+Le service de stockage reste MinIO Community. Comme les images MinIO publiées ne sont pas téléchargeables depuis le registre de cette installation, Compose construit le binaire MinIO officiel depuis la version source `RELEASE.2025-10-15T17-29-55Z`, épinglée à son commit. Le dépôt MinIO Community est archivé ; cette version ne reçoit pas de mises à jour amont garanties. Le premier `docker compose build minio` nécessite Go et télécharge les dépendances officielles depuis GitHub et le proxy Go.
+
 ### Mettre à jour une installation VPS existante
 
 Depuis le VPS, se placer dans le dossier du depot. Cette procedure conserve `.env` et les volumes Docker. Ne pas utiliser `docker compose down -v` : cette commande efface les donnees persistantes.

@@ -179,7 +179,10 @@ services:
   # ----------------------------------------------------------
   minio:
     <<: *base
-    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    image: videolog-minio:RELEASE.2025-10-15T17-29-55Z
+    build:
+      context: ./minio-server
+      dockerfile: Dockerfile
     container_name: vl-minio
     ports:
       - "127.0.0.1:9000:9000"   # API S3 : Nginx hôte (ou Caddy) en frontal
