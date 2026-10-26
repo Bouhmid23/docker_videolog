@@ -311,7 +311,8 @@ async def run_room(room_name: str):
             disconnected = asyncio.Event()
 
             @room.on("disconnected")
-            def _on_disc(reason):
+            def _on_disc(*args):
+                reason = args[0] if args else "no reason provided"
                 log.warning("[%s] Disconnected: %s", room_name, reason)
                 disconnected.set()
 
