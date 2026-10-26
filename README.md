@@ -2,10 +2,10 @@
 
 ## Déploiement sur un VPS
 
-La configuration de production utilise Caddy pour HTTPS et protège le dashboard/API par authentification HTTP Basic. Les enregistrements MinIO restent privés ; l'API fournit des liens de lecture signés valables une heure.
+La configuration de production utilise Caddy pour HTTPS. Le dashboard est protégé par HTTP Basic ; l'API mobile dédiée exige un ID token Firebase. Les enregistrements MinIO restent privés ; l'API fournit des liens de lecture signés valables une heure.
 
-1. Créer des enregistrements DNS `A` pour le domaine principal, `lk.<domaine>` et `storage.<domaine>`, tous vers l'adresse IPv4 du VPS.
-2. Configurer `.env` avec le vrai `DOMAIN`, `LIVEKIT_PUBLIC_URL=wss://lk.<domaine>` et `MINIO_PUBLIC_URL=https://storage.<domaine>`. Utiliser des secrets alphanumériques forts pour LiveKit, MinIO et MongoDB ; les mots de passe Mongo sont inclus dans les URI.
+1. Créer des enregistrements DNS `A` pour `videolog.app`, `dashboard.videolog.app`, `api.videolog.app`, `livekit.videolog.app` et `minio.videolog.app`, tous vers l'adresse IPv4 du VPS.
+2. Configurer `.env` avec `DOMAIN=videolog.app`, `LIVEKIT_PUBLIC_URL=wss://livekit.videolog.app`, `MINIO_PUBLIC_URL=https://minio.videolog.app` et les paramètres Firebase. Placer le compte de service Firebase dans le dossier secrets indiqué par `FIREBASE_SECRETS_DIR`. `RECORDING_MODE=manual` désactive le démarrage automatique par nombre de participants. `RECORDING_MAX_DURATION_SECONDS=180` impose un arrêt serveur après trois minutes, même sans commande mobile. Utiliser des secrets alphanumériques forts pour LiveKit, MinIO et MongoDB ; les mots de passe Mongo sont inclus dans les URI.
 3. Générer le hash du mot de passe du dashboard avec `docker run --rm caddy:2-alpine caddy hash-password --plaintext 'mot-de-passe-fort'`, puis le renseigner dans `DASHBOARD_AUTH_HASH`. Dans `.env`, entourer la valeur de hash de simples quotes pour que Compose préserve ses `$`.
 4. Ouvrir sur le pare-feu du VPS `80/tcp`, `443/tcp`, `443/udp`, `7881/tcp` et `7882/udp`. Les bases, MinIO et l'API restent liées à localhost ou au réseau Docker.
 5. Démarrer les services puis le proxy TLS :
@@ -15,7 +15,7 @@ docker compose up -d --build
 docker compose --profile proxy up -d
 ```
 
-Caddy obtient et renouvelle automatiquement les certificats. Le dashboard est disponible sur `https://<domaine>` ; l'accès demandera l'utilisateur et le mot de passe configurés. Les clients LiveKit se connectent à `wss://lk.<domaine>`.
+Caddy obtient et renouvelle automatiquement les certificats. Le dashboard est disponible sur `https://dashboard.videolog.app` ; l'accès demandera l'utilisateur et le mot de passe configurés. `https://videolog.app` redirige vers le dashboard. L'application mobile utilise `https://api.videolog.app`, les clients LiveKit `wss://livekit.videolog.app` et les liens MinIO `https://minio.videolog.app`.
 
 ### Mettre à jour une installation VPS existante
 
@@ -40,7 +40,7 @@ git pull --ff-only
 docker compose config --quiet
 ```
 
-Comparer la liste des variables de `.env.example` avec `.env` et ajouter manuellement celles qui manquent, sans remplacer les secrets de production ni afficher `.env` dans un terminal partage. La commande `docker compose config --quiet` doit terminer sans erreur. Si `git status` affiche des modifications locales, les sauvegarder et les examiner avant le `git pull`.
+Le fichier `.env` contient les valeurs propres au déploiement et n'est pas versionné. Vérifier qu'il définit les variables requises dans cette documentation, sans remplacer les secrets de production ni afficher `.env` dans un terminal partagé. La commande `docker compose config --quiet` doit terminer sans erreur. Si `git status` affiche des modifications locales, les sauvegarder et les examiner avant le `git pull`.
 
 3. Reconstruire et demarrer les services, y compris le profil Caddy :
 
@@ -55,11 +55,11 @@ docker compose logs --since=10m caddy dashboard dashboard-api telemetry-agent mo
 Depuis un poste ayant acces au domaine, controler que le domaine principal et l'API demandent bien une authentification :
 
 ```bash
-curl -sS -o /dev/null -w '%{http_code}\n' https://<domaine>/
-curl -sS -o /dev/null -w '%{http_code}\n' https://<domaine>/api/docs
+curl -sS -o /dev/null -w '%{http_code}\n' https://dashboard.videolog.app/
+curl -sS -o /dev/null -w '%{http_code}\n' https://dashboard.videolog.app/api/docs
 ```
 
-Les deux reponses attendues sont `401`. Ensuite, ouvrir le dashboard dans un navigateur et se connecter avec `DASHBOARD_AUTH_USER` et le mot de passe correspondant au hash configure.
+Les deux reponses attendues sont `401`. Le domaine `https://videolog.app` redirige vers le dashboard. L'API mobile est sur `https://api.videolog.app` et utilise des ID tokens Firebase, pas HTTP Basic.
 
 Si cette version active l'authentification MongoDB sur une base preexistante creee sans auth, ne pas redemarrer tout le stack tel quel : suivre d'abord la procedure de migration Mongo ci-dessous. L'initialisation Docker ne cree pas les comptes dans un volume Mongo deja initialise.
 
@@ -67,18 +67,17 @@ Si cette version active l'authentification MongoDB sur une base preexistante cre
 
 | Brique / URL | Basic Auth | Protection appliquee |
 |---|---|---|
-| Dashboard `https://<domaine>/` | Oui | Caddy protege le site entier sur le domaine principal. |
-| API `https://<domaine>/api/...`, y compris `/api/docs` | Oui | Les requetes passent par le domaine protege, puis Nginx les relaie vers `dashboard-api`. |
+| Dashboard `https://dashboard.videolog.app/` | Oui | Caddy protège l'interface opérateur par HTTP Basic. |
+| API dashboard `https://dashboard.videolog.app/api/...` | Oui | Les événements SSE du dashboard passent par le vhost authentifié. |
+| API mobile `https://api.videolog.app` | Non | Seuls `/token`, `/mobile/*` et le webhook LiveKit sont routés ; Firebase ID tokens protègent les routes mobiles et le webhook est signé. |
 | API directe `127.0.0.1:8001` | Non | Port lie a localhost : pas accessible directement depuis Internet. |
 | Dashboard direct `127.0.0.1:3000` | Non | Port lie a localhost : pas accessible directement depuis Internet. |
-| LiveKit `lk.<domaine>` et ports medias 7881/7882 | Non | Le signalement utilise les jetons/API keys LiveKit ; les ports medias publics sont necessaires a WebRTC. Basic Auth HTTP ne convient pas a ces flux. |
-| MinIO `storage.<domaine>` | Non | Les buckets sont prives et les liens de lecture sont signes ; l'API S3 utilise les identifiants MinIO. Ce sous-domaine ne doit pas etre protege par un challenge Basic generique, car cela bloquerait les liens video signes. |
+| LiveKit `livekit.videolog.app` et ports medias 7881/7882 | Non | Le signalement utilise les jetons/API keys LiveKit ; les ports medias publics sont necessaires a WebRTC. Basic Auth HTTP ne convient pas a ces flux. |
+| MinIO `minio.videolog.app` | Non | Les buckets sont prives et les liens de lecture sont signes ; l'API S3 utilise les identifiants MinIO. Ce sous-domaine ne doit pas etre protege par un challenge Basic generique, car cela bloquerait les liens video signes. |
 | Console MinIO `127.0.0.1:9001` | Non | Port local uniquement ; acces d'administration via tunnel SSH et identifiants MinIO. |
-| Prometheus `127.0.0.1:9090` | Non | Profil monitoring, port local uniquement ; utiliser un tunnel SSH. |
-| Grafana `127.0.0.1:3001` | Non | Port local uniquement et connexion Grafana avec le mot de passe configure. |
 | MongoDB, Redis, webhooks, agents, writer, Egress | Non | Services internes au reseau Docker, sans port public publie. |
 
-**Conclusion :** Basic Auth couvre les deux interfaces HTTP destinees aux operateurs (dashboard et API) lorsqu'elles sont servies par Caddy sur le domaine principal. Il ne couvre pas les sous-domaines LiveKit et MinIO, qui ont leurs propres mecanismes, ni les services locaux/internes. Les ports locaux ne doivent pas etre republies sur `0.0.0.0` ni exposes par une regle de pare-feu. Le hash Caddy et l'utilisateur doivent etre definis dans `.env` (`DASHBOARD_AUTH_USER` et `DASHBOARD_AUTH_HASH`) ; ne pas laisser le hash vide en production.
+**Conclusion :** HTTP Basic protège le dashboard et son API SSE opérateur. L'API mobile s'appuie sur les ID tokens Firebase. LiveKit, MinIO et les ports locaux/internes ont leurs mécanismes propres ; les ports locaux ne doivent pas être republiés sur `0.0.0.0` ni exposés par une règle de pare-feu. Le hash Caddy et l'utilisateur doivent être définis dans `.env` (`DASHBOARD_AUTH_USER` et `DASHBOARD_AUTH_HASH`) ; ne pas laisser le hash vide en production.
 
 ### Base MongoDB déjà utilisée
 
@@ -98,6 +97,8 @@ Les volumes Docker assurent la persistance locale, pas une sauvegarde. Configure
 Les flux Redis sont limités à 100 000 événements de télémétrie et 10 000 alertes. Si le writer reste en panne et que Redis atteint sa mémoire maximale, les nouvelles écritures échoueront plutôt que d'évincer silencieusement les messages existants ; surveiller les logs et la mémoire Redis.
 
 ## Architecture déployée
+
+Pour adapter le client mobile au serveur, au token LiveKit et au format des paquets de télémétrie, voir le [guide d'intégration du client mobile](docs/MOBILE_CLIENT_GUIDE.md).
 
 ```
 [Mobile Simulator] ──DataTrack──▶ [LiveKit Server] ◀── [Telemetry Agent]
@@ -194,7 +195,6 @@ videolog-poc/
 - [ ] Déployer TURN server (Coturn) pour NAT traversal
 - [ ] Cluster LiveKit (2+ nœuds + Redis partagé)
 - [ ] MinIO mode distribué (4 nœuds)
-- [ ] Monitoring Prometheus + Grafana
 
 ---
 
@@ -203,10 +203,12 @@ videolog-poc/
 ### Depuis le dashboard (recommandé)
 Ouvrir http://localhost:3000 → panneau **Enregistrement Egress** → bouton **Start**.
 
-### Démarrage automatique
-L'enregistrement automatique démarre lorsqu'au moins deux participants connectés ont publié une télémétrie avec le rôle `coach` ou `trainee`. Toutes les combinaisons sont acceptées (coach + trainee, deux coachs ou deux trainees). Les rôles `observer` et les identités de service (`telemetry-agent`, `egress`, `livekit-egress`) ne comptent pas dans ce seuil. Les identités de service sont également exclues de l'expulsion pour inactivité de télémétrie.
+### Mode automatique optionnel
+Le mode automatique est désactivé par défaut (`RECORDING_MODE=manual`) afin que l'enregistrement soit commandé explicitement depuis le mobile ou le dashboard. Pour réactiver l'ancien déclenchement selon le nombre de participants, configurez `RECORDING_MODE=automatic`.
 
-Le seuil est configurable avec `RECORD_MIN_PARTICIPANTS` (défaut et minimum : `2`, valeur supérieure autorisée). Si le nombre de coachs/trainees passe sous le seuil, l'arrêt attend `STOP_GRACE_DELAY` secondes (défaut : `10`) ; si le seuil est réatteint pendant ce délai, l'arrêt est annulé. Les rôles sont déterminés d'après les paquets de télémétrie reçus, l'automatisation attend donc qu'un coach/trainee ait envoyé un paquet pour le compter.
+En mode automatique, l'enregistrement démarre lorsqu'au moins deux participants connectés ont publié une télémétrie de rôle `coach` ou `trainee`. Le seuil `RECORD_MIN_PARTICIPANTS` et le délai d'arrêt `STOP_GRACE_DELAY` ne s'appliquent qu'à ce mode.
+
+Quel que soit le mode, `RECORDING_MAX_DURATION_SECONDS=180` impose un arrêt serveur après trois minutes, même si aucun client n'envoie de commande d'arrêt.
 
 ### Depuis le CLI (terminal)
 ```bash

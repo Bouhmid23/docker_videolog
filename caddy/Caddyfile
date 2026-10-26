@@ -1,4 +1,8 @@
 {$DOMAIN} {
+	redir https://dashboard.{$DOMAIN}{uri} permanent
+}
+
+dashboard.{$DOMAIN} {
 	basic_auth {
 		{$DASHBOARD_AUTH_USER} {$DASHBOARD_AUTH_HASH}
 	}
@@ -14,10 +18,24 @@
 	}
 }
 
-lk.{$DOMAIN} {
+livekit.{$DOMAIN} {
 	reverse_proxy livekit:7880
 }
 
-storage.{$DOMAIN} {
+api.{$DOMAIN} {
+	@mobile_api path /token /mobile/*
+	handle @mobile_api {
+		reverse_proxy dashboard-api:8000
+	}
+	@livekit_webhook path /webhook/livekit
+	handle @livekit_webhook {
+		reverse_proxy dashboard-api:8000
+	}
+	handle {
+		respond "Not Found" 404
+	}
+}
+
+minio.{$DOMAIN} {
 	reverse_proxy minio:9000
 }

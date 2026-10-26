@@ -1,8 +1,7 @@
 # ============================================================
 #  VIDEOLOG — Full Stack (version optimisée prod)
-#  cp .env.example .env  → remplir les secrets
+#  Configurer .env avec les variables de déploiement
 #  Démarrer : docker compose up -d
-#  Monitoring : docker compose --profile monitoring up -d
 # ============================================================
 
 x-base: &base
@@ -25,8 +24,6 @@ volumes:
   minio_data:
   redis_data:
   egress_tmp:
-  grafana_data:
-  prometheus_data:
   caddy_data:
   caddy_config:
 
@@ -46,7 +43,7 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      DOMAIN: ${DOMAIN:-localhost}
+      DOMAIN: ${DOMAIN:-videolog.app}
       DASHBOARD_AUTH_USER: ${DASHBOARD_AUTH_USER:-videolog}
       DASHBOARD_AUTH_HASH: ${DASHBOARD_AUTH_HASH:-}
     volumes:
@@ -73,7 +70,7 @@ services:
     image: livekit/livekit-server:v1.7.2
     container_name: vl-livekit
     ports:
-      - "127.0.0.1:7880:7880"   # signalisation : via Caddy (wss://lk.DOMAIN)
+      - "127.0.0.1:7880:7880"   # signalisation : via Caddy (wss://livekit.DOMAIN)
       - "7881:7881"             # ICE/TCP fallback (public)
       - "7882:7882/udp"         # média WebRTC (public)
     environment:
@@ -284,6 +281,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?}
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:?}
+      RECORDING_MODE: ${RECORDING_MODE:-manual}
+      RECORDING_MAX_DURATION_SECONDS: ${RECORDING_MAX_DURATION_SECONDS:-180}
     depends_on:
       - livekit
       - egress
@@ -312,6 +311,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?}
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:?}
+      RECORDING_MODE: ${RECORDING_MODE:-manual}
+      RECORDING_MAX_DURATION_SECONDS: ${RECORDING_MAX_DURATION_SECONDS:-180}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
       interval: 30s
@@ -441,6 +442,12 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?}
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:?}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_SERVICE_ACCOUNT_FILE: /run/secrets/firebase/firebase-service-account.json
+      RECORDING_MODE: ${RECORDING_MODE:-manual}
+      RECORDING_MAX_DURATION_SECONDS: ${RECORDING_MAX_DURATION_SECONDS:-180}
+    volumes:
+      - ${FIREBASE_SECRETS_DIR:-./secrets}:/run/secrets/firebase:ro
     depends_on:
       mongo:
         condition: service_healthy
@@ -452,83 +459,3 @@ services:
       resources:
         limits:
           memory: 384m
-
-  # ----------------------------------------------------------
-  # 12-15. MONITORING (profil: monitoring) — accès via tunnel SSH
-  # ----------------------------------------------------------
-  prometheus:
-    <<: *base
-    image: prom/prometheus:v2.50.0
-    container_name: vl-prometheus
-    profiles:
-      - monitoring
-    ports:
-      - "127.0.0.1:9090:9090"
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.retention.time=7d
-      - --storage.tsdb.retention.size=2GB
-    networks:
-      - videolog
-    deploy:
-      resources:
-        limits:
-          memory: 256m
-
-  grafana:
-    <<: *base
-    image: grafana/grafana:10.2.0
-    container_name: vl-grafana
-    profiles:
-      - monitoring
-    ports:
-      - "127.0.0.1:3001:3000"
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/videolog-dashboard.json
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
-      - ./monitoring/dashboard-provider.yml:/etc/grafana/provisioning/dashboards/provider.yml:ro
-      - ./monitoring/videolog-dashboard.json:/etc/grafana/dashboards/videolog-dashboard.json:ro
-    networks:
-      - videolog
-    depends_on:
-      - prometheus
-    deploy:
-      resources:
-        limits:
-          memory: 256m
-
-  redis-exporter:
-    <<: *base
-    image: oliver006/redis_exporter:v1.58.0
-    container_name: vl-redis-exporter
-    profiles:
-      - monitoring
-    environment:
-      REDIS_ADDR: redis://redis:6379
-    networks:
-      - videolog
-    deploy:
-      resources:
-        limits:
-          memory: 64m
-
-  mongo-exporter:
-    <<: *base
-    image: percona/mongodb_exporter:0.40
-    container_name: vl-mongo-exporter
-    profiles:
-      - monitoring
-    command: --mongodb.uri=mongodb://${MONGO_ROOT_USER:?}:${MONGO_ROOT_PASSWORD:?}@mongo:27017/admin?authSource=admin --collect-all
-    networks:
-      - videolog
-    deploy:
-      resources:
-        limits:
-          memory: 64m

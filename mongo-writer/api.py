@@ -2,17 +2,18 @@
 Dashboard API — Videolog POC
 FastAPI avec Server-Sent Events (SSE) pour le dashboard temps réel.
 """
-import asyncio, json, logging, os, time
+import asyncio, json, logging, os, time, uuid
 from datetime import datetime, UTC, timedelta
-from typing import AsyncGenerator, Any
+from typing import AsyncGenerator, Any, Literal
 from urllib.error import URLError
 from urllib.request import urlopen
 
 import redis.asyncio as aioredis
 from redis.exceptions import RedisError
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
@@ -27,6 +28,15 @@ MINIO_AK   = os.environ["MINIO_ACCESS_KEY"]
 MINIO_SK   = os.environ["MINIO_SECRET_KEY"]
 REC_BUCKET = "recordings"
 MINIO_PUBLIC_URL = os.environ["MINIO_PUBLIC_URL"]
+FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID")
+FIREBASE_SERVICE_ACCOUNT_FILE = os.environ.get(
+    "FIREBASE_SERVICE_ACCOUNT_FILE",
+    "/run/secrets/firebase/firebase-service-account.json",
+)
+RECORDING_MODE = os.environ.get("RECORDING_MODE", "manual").strip().lower()
+RECORDING_MAX_DURATION_SECONDS = max(
+    1, int(os.environ.get("RECORDING_MAX_DURATION_SECONDS", "180"))
+)
 
 app = FastAPI(title="Videolog Dashboard API", docs_url=None)
 mongo  = AsyncIOMotorClient(MONGO_URL)
@@ -37,10 +47,107 @@ alerts = mongo.videolog.alerts
 rooms  = mongo.videolog.room_state
 r: aioredis.Redis = None
 log = logging.getLogger(__name__)
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 class RemoveParticipantBody(BaseModel):
     identity: str = Field(min_length=1, max_length=128)
+
+
+def _firebase_app():
+    import firebase_admin
+    from firebase_admin import credentials
+
+    try:
+        return firebase_admin.get_app()
+    except ValueError:
+        if not os.path.isfile(FIREBASE_SERVICE_ACCOUNT_FILE):
+            raise HTTPException(
+                status_code=503,
+                detail="Firebase Authentication is not configured on the server.",
+            )
+        options = {"projectId": FIREBASE_PROJECT_ID} if FIREBASE_PROJECT_ID else None
+        try:
+            return firebase_admin.initialize_app(
+                credentials.Certificate(FIREBASE_SERVICE_ACCOUNT_FILE),
+                options=options,
+            )
+        except Exception as error:
+            log.exception("Firebase Admin SDK initialization failed")
+            raise HTTPException(
+                status_code=503,
+                detail="Firebase Authentication is unavailable.",
+            ) from error
+
+
+async def firebase_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> dict:
+    if not credentials or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=401,
+            detail="A Firebase ID token is required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    from firebase_admin import auth
+
+    firebase_app = _firebase_app()
+    try:
+        claims = await asyncio.to_thread(
+            auth.verify_id_token,
+            credentials.credentials,
+            check_revoked=True,
+            app=firebase_app,
+        )
+    except (auth.InvalidIdTokenError, auth.ExpiredIdTokenError, auth.RevokedIdTokenError) as error:
+        raise HTTPException(
+            status_code=401,
+            detail="The Firebase ID token is invalid or expired.",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from error
+    except Exception as error:
+        log.exception("Firebase ID token verification failed")
+        raise HTTPException(
+            status_code=503,
+            detail="Firebase Authentication is temporarily unavailable.",
+        ) from error
+
+    if not claims.get("uid"):
+        raise HTTPException(status_code=401, detail="Firebase token has no user identity.")
+    return claims
+
+
+async def _get_authorized_room(
+    room_name: str, user: dict, allow_finished: bool = False
+) -> dict:
+    room = await rooms.find_one({"room_name": room_name}, {"_id": 0})
+    if not room:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    if room.get("finished") and not allow_finished:
+        raise HTTPException(status_code=409, detail="Session has already finished.")
+
+    uid = user["uid"]
+    operators = room.get("recording_operator_uids", [])
+    is_operator = (
+        user.get("recording_admin") is True
+        or uid == room.get("owner_uid")
+        or (isinstance(operators, list) and uid in operators)
+    )
+    if not is_operator:
+        raise HTTPException(
+            status_code=403,
+            detail="You are not allowed to control recordings for this session.",
+        )
+    return room
+
+
+def _require_manual_recording_mode():
+    if RECORDING_MODE != "manual":
+        raise HTTPException(
+            status_code=409,
+            detail="Mobile recording control requires RECORDING_MODE=manual.",
+        )
 
 
 @app.get("/docs", include_in_schema=False)
@@ -650,25 +757,302 @@ async def sse_events(request: Request, room: str | None = None):
 # ── Token ──────────────────────────────────────────────────────────────────────
 
 @app.post("/token")
-async def generate_token(body: dict):
+async def generate_token(body: dict, user: dict = Depends(firebase_user)):
     from livekit import api as lkapi
-    identity = body.get("identity", "unknown")
-    room     = body.get("room", "poc-room")
+    room = body.get("room")
+    if not isinstance(room, str) or not room.strip() or len(room) > 128:
+        raise HTTPException(status_code=422, detail="A valid room is required.")
+    room = room.strip()
+    room_doc = await rooms.find_one({"room_name": room}, {"_id": 0})
+    if not room_doc or room_doc.get("finished"):
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    uid = user["uid"]
+    participant_uids = room_doc.get("participant_uids", [])
+    operator_uids = room_doc.get("recording_operator_uids", [])
+    permitted_rooms = user.get("livekit_room_names", [])
+    can_join = (
+        user.get("recording_admin") is True
+        or uid == room_doc.get("owner_uid")
+        or (isinstance(participant_uids, list) and uid in participant_uids)
+        or (isinstance(operator_uids, list) and uid in operator_uids)
+        or (isinstance(permitted_rooms, list) and room in permitted_rooms)
+    )
+    if not can_join:
+        raise HTTPException(status_code=403, detail="You are not allowed to join this session.")
+
+    identity = uid
     try:
         token = (
             lkapi.AccessToken(LK_KEY, LK_SECRET)
             .with_identity(identity).with_name(identity)
+            .with_ttl(timedelta(minutes=10))
             .with_grants(lkapi.VideoGrants(
                 room_join=True, room=room,
                 can_publish=True, can_subscribe=True))
             .to_jwt()
         )
         return {"token": token, "room": room, "identity": identity, "url": LK_PUB_URL}
-    except Exception as e:
-        return {"error": str(e)}
+    except Exception as error:
+        log.exception("Failed to issue LiveKit token for Firebase user %s", uid)
+        raise HTTPException(status_code=502, detail="Unable to issue a LiveKit token.") from error
 
 
 # ── Recordings ─────────────────────────────────────────────────────────────────
+
+@app.post("/mobile/rooms/{room_name}/recording/start")
+async def mobile_start_recording(
+    room_name: str,
+    layout: Literal["grid", "speaker", "single-speaker"] = "grid",
+    user: dict = Depends(firebase_user),
+):
+    from livekit import api as lkapi
+    from livekit.protocol import egress as proto_egress
+
+    _require_manual_recording_mode()
+    await _get_authorized_room(room_name, user)
+
+    active = await recs.find_one({
+        "room_name": room_name,
+        "status": {"$in": [
+            "recording", "EGRESS_STARTING", "EGRESS_ACTIVE", "EGRESS_ENDING",
+        ]},
+    }, {"_id": 0, "egress_id": 1})
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail="An Egress recording is already active for this session.",
+        )
+
+    request_id = uuid.uuid4().hex
+    requested_at = datetime.now(UTC)
+    reservation = await rooms.update_one(
+        {
+            "room_name": room_name,
+            "finished": {"$ne": True},
+            "$or": [
+                {"mobile_recording.status": {"$in": [
+                    "completed", "failed", "stopped",
+                    "EGRESS_COMPLETE", "EGRESS_FAILED", "EGRESS_ABORTED",
+                ]}},
+                {"mobile_recording": {"$exists": False}},
+            ],
+        },
+        {"$set": {"mobile_recording": {
+            "request_id": request_id,
+            "status": "starting",
+            "requested_by": user["uid"],
+            "requested_at": requested_at,
+        }}},
+    )
+    if reservation.modified_count != 1:
+        raise HTTPException(
+            status_code=409,
+            detail="A recording start or stop is already in progress.",
+        )
+
+    timestamp = requested_at.strftime("%Y%m%d_%H%M%S")
+    lk = None
+    egress_id = None
+    try:
+        lk = lkapi.LiveKitAPI(LK_URL, LK_KEY, LK_SECRET)
+        request = proto_egress.RoomCompositeEgressRequest(
+            room_name=room_name,
+            layout=layout,
+            audio_only=False,
+            video_only=False,
+            file=proto_egress.EncodedFileOutput(
+                file_type=1,
+                filepath=f"{room_name}/{timestamp}/recording",
+                s3=proto_egress.S3Upload(
+                    access_key=MINIO_AK,
+                    secret=MINIO_SK,
+                    bucket=REC_BUCKET,
+                    endpoint=MINIO_EP,
+                    region="us-east-1",
+                    force_path_style=True,
+                ),
+            ),
+            advanced=proto_egress.EncodingOptions(
+                width=1280, height=720, depth=24, framerate=24,
+                audio_codec=2, audio_bitrate=128, audio_frequency=44100,
+                video_codec=1, video_bitrate=2500, key_frame_interval=4,
+            ),
+        )
+        info = await lk.egress.start_room_composite_egress(request)
+        egress_id = info.egress_id
+        status = _egress_status(info.status)
+        actual_started_at = datetime.now(UTC)
+        stop_deadline_at = actual_started_at + timedelta(
+            seconds=RECORDING_MAX_DURATION_SECONDS
+        )
+        await recs.update_one(
+            {"egress_id": info.egress_id},
+            {"$set": {
+                "room_name": room_name,
+                "requested_by": user["uid"],
+                "source": "mobile",
+                "requested_at": requested_at.isoformat(),
+                "stop_deadline_at": stop_deadline_at,
+                "max_duration_seconds": RECORDING_MAX_DURATION_SECONDS,
+            }, "$setOnInsert": {
+                "egress_id": info.egress_id,
+                "status": status,
+                "files": [],
+            }},
+            upsert=True,
+        )
+        await rooms.update_one(
+            {"room_name": room_name, "mobile_recording.request_id": request_id},
+            {"$set": {
+                "mobile_recording.egress_id": info.egress_id,
+                "mobile_recording.status": status,
+                "mobile_recording.stop_deadline_at": stop_deadline_at,
+            }},
+        )
+        latest = await recs.find_one(
+            {"egress_id": info.egress_id}, {"_id": 0, "status": 1}
+        )
+        if latest and latest.get("status"):
+            await rooms.update_one(
+                {"room_name": room_name, "mobile_recording.request_id": request_id},
+                {"$set": {"mobile_recording.status": latest["status"]}},
+            )
+        return {
+            "room_name": room_name,
+            "egress_id": info.egress_id,
+            "status": status,
+            "max_duration_seconds": RECORDING_MAX_DURATION_SECONDS,
+            "stop_deadline_at": stop_deadline_at,
+        }
+    except Exception as error:
+        if egress_id:
+            try:
+                await lk.egress.stop_egress(
+                    proto_egress.StopEgressRequest(egress_id=egress_id)
+                )
+            except Exception:
+                log.exception("Failed to roll back Egress %s after persistence error", egress_id)
+        await rooms.update_one(
+            {"room_name": room_name, "mobile_recording.request_id": request_id},
+            {"$set": {"mobile_recording.status": "failed"}},
+        )
+        log.exception("Mobile Egress start failed for room %s", room_name)
+        if isinstance(error, HTTPException):
+            raise
+        raise HTTPException(
+            status_code=502,
+            detail="LiveKit could not start the recording.",
+        ) from error
+    finally:
+        if lk:
+            await lk.aclose()
+
+
+@app.post("/mobile/rooms/{room_name}/recording/stop")
+async def mobile_stop_recording(room_name: str, user: dict = Depends(firebase_user)):
+    from livekit import api as lkapi
+    from livekit.protocol import egress as proto_egress
+
+    _require_manual_recording_mode()
+    room = await _get_authorized_room(room_name, user)
+    control = room.get("mobile_recording") or {}
+    egress_id = control.get("egress_id")
+    if not egress_id:
+        raise HTTPException(status_code=409, detail="No mobile recording is active.")
+
+    recording = await recs.find_one(
+        {"egress_id": egress_id, "room_name": room_name},
+        {"_id": 0, "status": 1},
+    )
+    if not recording or recording.get("status") in {
+        "completed", "failed", "stopped", "EGRESS_COMPLETE", "EGRESS_FAILED",
+        "EGRESS_ABORTED",
+    }:
+        raise HTTPException(status_code=409, detail="No active recording was found.")
+
+    previous_status = control.get("status", "recording")
+    stop_reservation = await rooms.update_one(
+        {
+            "room_name": room_name,
+            "mobile_recording.egress_id": egress_id,
+            "mobile_recording.status": {"$nin": [
+                "stopping", "completed", "failed", "stopped", "EGRESS_ENDING",
+                "EGRESS_COMPLETE", "EGRESS_FAILED", "EGRESS_ABORTED",
+            ]},
+        },
+        {"$set": {"mobile_recording.status": "stopping"}},
+    )
+    if stop_reservation.modified_count != 1:
+        raise HTTPException(status_code=409, detail="The recording is already stopping.")
+
+    lk = None
+    stop_requested_at = datetime.now(UTC)
+    try:
+        await recs.update_one(
+            {"egress_id": egress_id},
+            {"$set": {
+                "mobile_stop_requested_at": stop_requested_at,
+                "stop_reason": "mobile",
+            }},
+        )
+        lk = lkapi.LiveKitAPI(LK_URL, LK_KEY, LK_SECRET)
+        info = await lk.egress.stop_egress(
+            proto_egress.StopEgressRequest(egress_id=egress_id)
+        )
+        await rooms.update_one(
+            {"room_name": room_name, "mobile_recording.egress_id": egress_id},
+            {"$set": {
+                "mobile_recording.stopped_by": user["uid"],
+                "mobile_recording.stop_requested_at": datetime.now(UTC),
+            }},
+        )
+        return {
+            "room_name": room_name,
+            "egress_id": info.egress_id,
+            "status": _egress_status(info.status),
+        }
+    except Exception as error:
+        await recs.update_one(
+            {"egress_id": egress_id},
+            {"$unset": {"mobile_stop_requested_at": "", "stop_reason": ""}},
+        )
+        await rooms.update_one(
+            {
+                "room_name": room_name,
+                "mobile_recording.egress_id": egress_id,
+                "mobile_recording.status": "stopping",
+            },
+            {"$set": {"mobile_recording.status": previous_status}},
+        )
+        log.exception("Mobile Egress stop failed for room %s", room_name)
+        raise HTTPException(
+            status_code=502,
+            detail="LiveKit could not stop the recording.",
+        ) from error
+    finally:
+        if lk:
+            await lk.aclose()
+
+
+@app.get("/mobile/rooms/{room_name}/recording")
+async def mobile_recording_status(room_name: str, user: dict = Depends(firebase_user)):
+    room = await _get_authorized_room(room_name, user, allow_finished=True)
+    control = room.get("mobile_recording") or {}
+    egress_id = control.get("egress_id")
+    if not egress_id:
+        return {"room_name": room_name, "status": control.get("status", "not_started")}
+
+    recording = await recs.find_one({"egress_id": egress_id}, {"_id": 0})
+    if not recording:
+        return {
+            "room_name": room_name,
+            "egress_id": egress_id,
+            "status": control.get("status", "starting"),
+        }
+    _sign_recording_files(recording)
+    return recording
+
 
 @app.get("/recordings")
 async def list_recordings(room: str | None = None, room_name: str | None = None, limit: int = 50):
@@ -779,7 +1163,20 @@ async def stop_recording(egress_id: str):
 
 @app.post("/webhook/livekit")
 async def livekit_webhook(request: Request):
-    body        = await request.json()
+    from livekit import api as lkapi
+
+    raw_body = await request.body()
+    auth_header = request.headers.get("authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Missing LiveKit webhook authorization.")
+    try:
+        receiver = lkapi.WebhookReceiver(LK_KEY, LK_SECRET)
+        await asyncio.to_thread(receiver.receive, raw_body, auth_header)
+        body = json.loads(raw_body)
+    except Exception as error:
+        log.warning("Rejected invalid LiveKit webhook: %s", error)
+        raise HTTPException(status_code=401, detail="Invalid LiveKit webhook signature.") from error
+
     event       = body.get("event", "")
     egress_info = body.get("egressInfo", {})
     if not egress_info: return {"ok": True}
@@ -790,6 +1187,10 @@ async def livekit_webhook(request: Request):
             "egress_id": egress_id, "room_name": room_name, "status": "recording",
             "started_at": _livekit_timestamp_iso(egress_info.get("startedAt")), "files": [],
         }}, upsert=True)
+        await rooms.update_one(
+            {"room_name": room_name, "mobile_recording.egress_id": egress_id},
+            {"$set": {"mobile_recording.status": "recording"}},
+        )
         if r: await r.publish("egress:events", json.dumps(
             {"event": "started", "egress_id": egress_id, "room": room_name}))
     elif event == "egress_ended":
@@ -808,13 +1209,22 @@ async def livekit_webhook(request: Request):
             update["video_started_at"] = _livekit_timestamp_iso(file_results[0].get("startedAt"))
             update["video_ended_at"] = _livekit_timestamp_iso(file_results[0].get("endedAt"))
         await recs.update_one({"egress_id": egress_id}, {"$set": update}, upsert=True)
+        await rooms.update_one(
+            {"room_name": room_name, "mobile_recording.egress_id": egress_id},
+            {"$set": {"mobile_recording.status": update["status"]}},
+        )
         if r: await r.publish("egress:events", json.dumps(
             {"event": "ended", "egress_id": egress_id,
              "status": "failed" if error else "completed", "files": files}))
     elif event == "egress_updated":
+        status = egress_info.get("status", "")
         await recs.update_one({"egress_id": egress_id},
-            {"$set": {"status": egress_info.get("status",""),
+            {"$set": {"status": status,
                       "updated_at": datetime.now(UTC).isoformat()}}, upsert=True)
+        await rooms.update_one(
+            {"room_name": room_name, "mobile_recording.egress_id": egress_id},
+            {"$set": {"mobile_recording.status": status}},
+        )
     return {"ok": True}
 
 

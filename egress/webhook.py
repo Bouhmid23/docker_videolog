@@ -9,7 +9,7 @@ Les observers et agents internes sont exclus du seuil.
 Les agents internes sont aussi exclus de l'expulsion pour inactivite.
 """
 import asyncio, json, logging, os, time
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 
 from fastapi import FastAPI, Request, HTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -35,6 +35,14 @@ MINIO_PUBLIC_URL = os.environ["MINIO_PUBLIC_URL"]
 
 # Nombre minimum de participants pour declencher l'enregistrement
 RECORD_MIN_PARTICIPANTS = max(2, int(os.environ.get("RECORD_MIN_PARTICIPANTS", "2")))
+RECORDING_MODE = os.environ.get("RECORDING_MODE", "manual").strip().lower()
+if RECORDING_MODE not in {"automatic", "manual"}:
+    raise ValueError("RECORDING_MODE must be 'automatic' or 'manual'.")
+RECORDING_MAX_DURATION_SECONDS = max(
+    1, int(os.environ.get("RECORDING_MAX_DURATION_SECONDS", "180"))
+)
+RECORDING_LIMITER_INTERVAL = 1
+RECORDING_LIMITER_RETRY_SECONDS = 15
 # Delai de grace avant arret (secondes)
 STOP_GRACE_DELAY        = int(os.environ.get("STOP_GRACE_DELAY", "10"))
 # Identites de service exclues du seuil et de l'expulsion pour inactivite.
@@ -53,31 +61,145 @@ r: aioredis.Redis = None
 # Per-room live participant roles, active Egress IDs, and pending tasks.
 _state: dict = {}
 _participant_sweeper: asyncio.Task | None = None
+_recording_limiter: asyncio.Task | None = None
 
 
 @app.on_event("startup")
 async def startup():
-    global r, _participant_sweeper
+    global r, _participant_sweeper, _recording_limiter
     r = aioredis.from_url(REDIS_URL, decode_responses=True)
     await telemetry_col.create_index(
         [("room_name", 1), ("participant", 1), ("inserted_at", -1),
          ("server_ts", -1)])
+    await col.create_index([("stop_deadline_at", 1), ("status", 1)])
     _participant_sweeper = asyncio.create_task(_sweep_inactive_participants())
-    log.info(f"✅ Webhook pret | min_participants={RECORD_MIN_PARTICIPANTS} "
+    _recording_limiter = asyncio.create_task(_enforce_recording_duration_limit())
+    log.info(f"✅ Webhook pret | mode={RECORDING_MODE} "
+             f"min_participants={RECORD_MIN_PARTICIPANTS} "
+             f"max_recording_duration={RECORDING_MAX_DURATION_SECONDS}s "
              f"grace={STOP_GRACE_DELAY}s "
              f"telemetry_idle_timeout={TELEMETRY_IDLE_TIMEOUT}s")
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    if _participant_sweeper:
-        _participant_sweeper.cancel()
-        try:
-            await _participant_sweeper
-        except asyncio.CancelledError:
-            pass
+    for task in (_participant_sweeper, _recording_limiter):
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
     if r:
         await r.aclose()
+
+
+async def _enforce_recording_duration_limit():
+    terminal_statuses = [
+        "completed", "failed", "stopped",
+        "EGRESS_COMPLETE", "EGRESS_FAILED", "EGRESS_ABORTED",
+    ]
+    reconciled_existing = False
+    while True:
+        now = datetime.now(UTC)
+        try:
+            if not reconciled_existing:
+                unbounded = col.find(
+                    {
+                        "egress_id": {"$exists": True},
+                        "stop_deadline_at": {"$exists": False},
+                        "status": {"$nin": terminal_statuses},
+                    },
+                    {"_id": 0, "egress_id": 1, "started_at": 1},
+                )
+                async for recording in unbounded:
+                    started_at = recording.get("started_at")
+                    if isinstance(started_at, str):
+                        try:
+                            started_at = datetime.fromisoformat(
+                                started_at.replace("Z", "+00:00")
+                            )
+                        except ValueError:
+                            started_at = None
+                    if isinstance(started_at, datetime):
+                        if started_at.tzinfo is None:
+                            started_at = started_at.replace(tzinfo=UTC)
+                    else:
+                        started_at = now
+                    await col.update_one(
+                        {
+                            "egress_id": recording["egress_id"],
+                            "stop_deadline_at": {"$exists": False},
+                            "status": {"$nin": terminal_statuses},
+                        },
+                        {"$set": {
+                            "stop_deadline_at": started_at + timedelta(
+                                seconds=RECORDING_MAX_DURATION_SECONDS
+                            ),
+                            "max_duration_seconds": RECORDING_MAX_DURATION_SECONDS,
+                        }},
+                    )
+                reconciled_existing = True
+
+            expired = await col.find(
+                {
+                    "stop_deadline_at": {"$lte": now},
+                    "status": {"$nin": terminal_statuses},
+                    "mobile_stop_requested_at": {"$exists": False},
+                    "$or": [
+                        {"duration_stop_retry_after": {"$exists": False}},
+                        {"duration_stop_retry_after": {"$lte": now}},
+                    ],
+                },
+                {"_id": 0, "egress_id": 1, "room_name": 1},
+            ).to_list(50)
+
+            for recording in expired:
+                egress_id = recording.get("egress_id")
+                if not egress_id:
+                    continue
+                retry_after = now + timedelta(seconds=RECORDING_LIMITER_RETRY_SECONDS)
+                claimed = await col.update_one(
+                    {
+                        "egress_id": egress_id,
+                        "stop_deadline_at": {"$lte": now},
+                        "status": {"$nin": terminal_statuses},
+                        "mobile_stop_requested_at": {"$exists": False},
+                        "$or": [
+                            {"duration_stop_retry_after": {"$exists": False}},
+                            {"duration_stop_retry_after": {"$lte": now}},
+                        ],
+                    },
+                    {"$set": {
+                        "duration_stop_retry_after": retry_after,
+                        "duration_stop_reason": "maximum_duration",
+                    }},
+                )
+                if claimed.modified_count != 1:
+                    continue
+
+                lk = lkapi.LiveKitAPI(LIVEKIT_URL, API_KEY, API_SECRET)
+                try:
+                    await lk.egress.stop_egress(
+                        proto_egress.StopEgressRequest(egress_id=egress_id)
+                    )
+                    log.warning(
+                        "Stopped Egress at maximum duration (%ss): %s room=%s",
+                        RECORDING_MAX_DURATION_SECONDS,
+                        egress_id,
+                        recording.get("room_name"),
+                    )
+                except Exception:
+                    log.exception(
+                        "Unable to stop Egress at maximum duration: %s", egress_id
+                    )
+                finally:
+                    await lk.aclose()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Recording duration limiter failed")
+        await asyncio.sleep(RECORDING_LIMITER_INTERVAL)
 
 
 def _participant_joined_at(participant) -> float | None:
@@ -230,10 +352,11 @@ async def _sweep_inactive_participants():
                         upsert=True,
                     )
 
-                if current_count >= RECORD_MIN_PARTICIPANTS:
+                if RECORDING_MODE == "automatic" and current_count >= RECORD_MIN_PARTICIPANTS:
                     await _cancel_stop(room_name)
                     asyncio.create_task(_auto_start_recording(room_name))
-                elif (previous_count >= RECORD_MIN_PARTICIPANTS
+                elif (RECORDING_MODE == "automatic"
+                      and previous_count >= RECORD_MIN_PARTICIPANTS
                       and state["egress_ids"]):
                     await _schedule_stop(room_name)
         except asyncio.CancelledError:
@@ -336,6 +459,8 @@ async def _auto_start_recording(room_name: str):
     Ne lance pas si un egress est deja actif.
     """
     st = _room(room_name)
+    if RECORDING_MODE != "automatic":
+        return
     if _count(room_name) < RECORD_MIN_PARTICIPANTS:
         return
     if st["egress_ids"] or st["starting"]:
@@ -469,6 +594,15 @@ async def _persist_room(room_name: str, finished: bool = False):
 @app.post("/webhook/livekit")
 async def livekit_webhook(request: Request):
     body = await request.body()
+    auth_header = request.headers.get("authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Missing LiveKit webhook authorization.")
+    try:
+        receiver = lkapi.WebhookReceiver(API_KEY, API_SECRET)
+        await asyncio.to_thread(receiver.receive, body, auth_header)
+    except Exception as error:
+        log.warning("Rejected invalid LiveKit webhook: %s", error)
+        raise HTTPException(status_code=401, detail="Invalid LiveKit webhook signature.") from error
     try:
         event = json.loads(body)
     except json.JSONDecodeError:
@@ -514,7 +648,7 @@ async def handle_joined(event: dict):
     )
 
     # Seuls les coachs/trainees peuvent maintenir ou declencher l'enregistrement.
-    if count >= RECORD_MIN_PARTICIPANTS:
+    if RECORDING_MODE == "automatic" and count >= RECORD_MIN_PARTICIPANTS:
         await _cancel_stop(room_name)
     await _persist_room(room_name)
 
@@ -524,7 +658,7 @@ async def handle_joined(event: dict):
     }))
 
     # ── Declenchement automatique de l'enregistrement ──────────────────────
-    if count >= RECORD_MIN_PARTICIPANTS:
+    if RECORDING_MODE == "automatic" and count >= RECORD_MIN_PARTICIPANTS:
         log.info(f"🎯 Seuil atteint ({count}/{RECORD_MIN_PARTICIPANTS}) "
                  f"→ demarrage enregistrement")
         asyncio.create_task(_auto_start_recording(room_name))
@@ -554,7 +688,8 @@ async def handle_left(event: dict):
     }))
 
     st = _room(room_name)
-    if (previous_count >= RECORD_MIN_PARTICIPANTS
+    if (RECORDING_MODE == "automatic"
+            and previous_count >= RECORD_MIN_PARTICIPANTS
             and count < RECORD_MIN_PARTICIPANTS and st["egress_ids"]):
         log.info(f"📉 Moins de {RECORD_MIN_PARTICIPANTS} participants "
                  f"→ arret dans {STOP_GRACE_DELAY}s")
@@ -567,12 +702,30 @@ async def handle_egress_started(event: dict):
     eg        = event.get("egressInfo", {})
     egress_id = eg.get("egressId", "")
     room_name = eg.get("roomName", "")
+    try:
+        started_ns = int(eg.get("startedAt", 0))
+        started_at = (
+            datetime.fromtimestamp(started_ns / 1_000_000_000, UTC)
+            if started_ns > 0 else datetime.now(UTC)
+        )
+    except (TypeError, ValueError, OverflowError, OSError):
+        started_at = datetime.now(UTC)
+    stop_deadline_at = started_at + timedelta(
+        seconds=RECORDING_MAX_DURATION_SECONDS
+    )
     _room(room_name)["egress_ids"].add(egress_id)
     await col.update_one({"egress_id": egress_id}, {"$set": {
         "egress_id": egress_id, "room_name": room_name,
         "status": "recording",
-        "started_at": _livekit_timestamp_iso(eg.get("startedAt")), "files": [],
+        "started_at": started_at.isoformat(),
+        "stop_deadline_at": stop_deadline_at,
+        "max_duration_seconds": RECORDING_MAX_DURATION_SECONDS,
+        "files": [],
     }}, upsert=True)
+    await rooms_col.update_one(
+        {"room_name": room_name, "mobile_recording.egress_id": egress_id},
+        {"$set": {"mobile_recording.status": "recording"}},
+    )
     await r.publish("egress:events", json.dumps(
         {"type": "started", "egress_id": egress_id, "room_name": room_name}))
     log.info(f"▶  Egress demarre | {egress_id}")
@@ -580,9 +733,15 @@ async def handle_egress_started(event: dict):
 
 async def handle_egress_updated(event: dict):
     eg = event.get("egressInfo", {})
+    status = eg.get("status", "")
     await col.update_one({"egress_id": eg.get("egressId","")},
-        {"$set": {"status": eg.get("status",""),
+        {"$set": {"status": status,
                   "updated_at": datetime.now(UTC).isoformat()}})
+    await rooms_col.update_one(
+        {"room_name": eg.get("roomName", ""),
+         "mobile_recording.egress_id": eg.get("egressId", "")},
+        {"$set": {"mobile_recording.status": status}},
+    )
 
 
 async def handle_egress_ended(event: dict):
@@ -615,6 +774,10 @@ async def handle_egress_ended(event: dict):
         update["video_started_at"] = _livekit_timestamp_iso(file_results[0].get("startedAt"))
         update["video_ended_at"] = _livekit_timestamp_iso(file_results[0].get("endedAt"))
     await col.update_one({"egress_id": egress_id}, {"$set": update}, upsert=True)
+    await rooms_col.update_one(
+        {"room_name": room_name, "mobile_recording.egress_id": egress_id},
+        {"$set": {"mobile_recording.status": update["status"]}},
+    )
 
     if files and not error:
         await mongo.videolog.sessions.update_one(
