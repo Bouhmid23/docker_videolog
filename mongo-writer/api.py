@@ -9,9 +9,10 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, Field
 
 MONGO_URL  = os.environ.get("MONGO_URL",         "mongodb://mongo:27017/videolog")
 REDIS_URL  = os.environ.get("REDIS_URL",         "redis://redis:6379")
@@ -34,6 +35,10 @@ alerts = mongo.videolog.alerts
 rooms  = mongo.videolog.room_state
 r: aioredis.Redis = None
 log = logging.getLogger(__name__)
+
+
+class RemoveParticipantBody(BaseModel):
+    identity: str = Field(min_length=1, max_length=128)
 
 
 def _minio_client(public: bool = False):
@@ -396,6 +401,37 @@ async def get_room(room_name: str):
     if isinstance(doc.get("updated_at"), datetime):
         doc["updated_at"] = doc["updated_at"].isoformat()
     return doc
+
+
+@app.post("/rooms/{room_name}/remove-participant")
+async def remove_room_participant(room_name: str, body: RemoveParticipantBody):
+    identity = body.identity.strip()
+    if not identity:
+        raise HTTPException(status_code=400, detail="L'identité du participant est requise.")
+    if identity.lower() in {"telemetry-agent", "egress", "livekit-egress"}:
+        raise HTTPException(status_code=403, detail="Les services internes ne peuvent pas être retirés.")
+
+    from livekit import api as lkapi
+
+    lk = lkapi.LiveKitAPI(LK_URL, LK_KEY, LK_SECRET)
+    try:
+        participants = await lk.room.list_participants(
+            lkapi.ListParticipantsRequest(room=room_name))
+        if not any(participant.identity == identity for participant in participants.participants):
+            raise HTTPException(status_code=404, detail="Ce participant n'est plus dans la room.")
+        await lk.room.remove_participant(
+            lkapi.RoomParticipantIdentity(room=room_name, identity=identity))
+        return {"room_name": room_name, "identity": identity, "status": "removed"}
+    except HTTPException:
+        raise
+    except Exception as error:
+        log.exception("Failed to remove participant %s from room %s", identity, room_name)
+        raise HTTPException(
+            status_code=502,
+            detail="LiveKit n'a pas pu retirer ce participant.",
+        ) from error
+    finally:
+        await lk.aclose()
 
 
 # ── SSE — événements temps réel ───────────────────────────────────────────────
