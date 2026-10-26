@@ -350,6 +350,7 @@ function makeChart(canvas, config) {
 const TRAINEE_COLORS = ['#37c978', '#63a9ff', '#e3b341', '#c084fc', '#fb7185', '#22d3ee', '#f97316', '#a3e635'];
 const traineeCards = new Map();
 let traineeSeries = [];
+let liveRoomParticipants = new Set();
 
 function createTraineeChart(id, min) {
   return makeChart(document.getElementById(id), {
@@ -550,15 +551,31 @@ async function pollMinioStatus() {
 }
 
 async function pollSeries() {
+  const roomName = currentRoom;
   try {
-    const data = await apiJson(`${API}/telemetry/series?room=${encodeURIComponent(currentRoom)}&role=trainee&limit=150`);
+    const data = await apiJson(`${API}/telemetry/series?room=${encodeURIComponent(roomName)}&role=trainee&limit=150`);
+    if (roomName !== currentRoom) return;
     if (!Array.isArray(data)) throw new Error('Série de télémétrie invalide');
-    traineeSeries = data.filter(point => point.role === 'trainee');
+    traineeSeries = data.filter(point =>
+      point.role === 'trainee' && liveRoomParticipants.has(String(point.participant || 'Trainee')));
     const latestByTrainee = new Map();
     [...traineeSeries]
       .sort((a, b) => Number(a.pts_ms) - Number(b.pts_ms))
       .forEach(point => latestByTrainee.set(point.participant || 'Trainee', point));
+    for (const [name, card] of traineeCards) {
+      if (!latestByTrainee.has(name)) {
+        card.remove();
+        traineeCards.delete(name);
+      }
+    }
     latestByTrainee.forEach(updateTraineeCard);
+    if (latestByTrainee.size === 0 && !document.getElementById('trainee-empty')) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.id = 'trainee-empty';
+      empty.textContent = 'Aucun trainee présent avec télémétrie.';
+      document.getElementById('athlete-grid').append(empty);
+    }
     updateTraineeCharts(traineeSeries);
   } catch(error) { showAppError(error, 'Chargement des graphiques'); }
 }
@@ -619,13 +636,26 @@ async function pollEvents() {
 }
 
 async function fetchRoomState() {
+  const roomName = currentRoom;
   try {
-    const d = await apiJson(`${API}/rooms/${encodeURIComponent(currentRoom)}`);
+    const d = await apiJson(`${API}/rooms/${encodeURIComponent(roomName)}`);
+    if (roomName !== currentRoom) return;
     if (!d || typeof d !== 'object') throw new Error('État de room invalide');
-    const names = (d.participants||[]).filter(p=>!['telemetry-agent','egress'].includes(p));
+    const names = (d.participants||[]).filter(p=>
+      !['telemetry-agent','egress','livekit-egress'].includes(String(p).toLowerCase()));
+    liveRoomParticipants = new Set(names.map(String));
     document.getElementById('rc-participants').innerHTML = names.length === 0
       ? '<span style="color:#444;font-size:12px">Aucun participant — en attente de 2 pour démarrer</span>'
       : names.map(p=>`<span class="participant-chip"><span style="width:6px;height:6px;background:#3fb950;border-radius:50%"></span>${escapeHtml(p)}<button type="button" class="participant-remove" data-participant="${escapeHtml(p)}" aria-label="Retirer ${escapeHtml(p)} de la room" onclick="removeParticipant(this)">Retirer</button></span>`).join('');
+    for (const [name, card] of traineeCards) {
+      if (!liveRoomParticipants.has(name)) {
+        card.remove();
+        traineeCards.delete(name);
+      }
+    }
+    traineeSeries = traineeSeries.filter(point =>
+      liveRoomParticipants.has(String(point.participant || 'Trainee')));
+    updateTraineeCharts(traineeSeries);
     // Badge auto
     if (d.recording) {
       document.getElementById('rec-auto-badge').style.display = 'inline';
@@ -771,6 +801,7 @@ function updateRoomLabels() {
 function clearRoomData() {
   traineeSeries = [];
   traineeCards.clear();
+  liveRoomParticipants = new Set();
   const athleteGrid = document.getElementById('athlete-grid');
   athleteGrid.innerHTML = '<div class="empty-state" id="trainee-empty">En attente des données des trainees.</div>';
   [hrChart, spdChart, cadChart].forEach(chart => {
