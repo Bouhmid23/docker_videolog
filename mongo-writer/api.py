@@ -10,7 +10,7 @@ from urllib.request import urlopen
 
 import redis.asyncio as aioredis
 from redis.exceptions import RedisError
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -199,6 +199,55 @@ async def latest(room: str | None = None, limit: int = 20, role: str | None = No
         query["telemetry.role"] = role
     return await col.find(query, {"_id": 0},
                           sort=[("ts", -1)], limit=limit).to_list(limit)
+
+
+@app.get("/telemetry/history")
+async def telemetry_history(
+    room: str,
+    participant: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    query = {
+        "room_name": room,
+        "$or": [{"telemetry.role": "trainee"}, {"telemetry.role": None}],
+    }
+    if participant:
+        query["participant"] = participant
+
+    total = await col.count_documents(query)
+    participants = await col.distinct("participant", {
+        "room_name": room,
+        "$or": [{"telemetry.role": "trainee"}, {"telemetry.role": None}],
+    })
+    docs = await col.find(
+        query,
+        {"_id": 0, "room_name": 1, "participant": 1, "server_ts": 1,
+         "ts": 1, "pts_ms": 1, "telemetry": 1, "packet_b64": 1,
+         "packet_encoding": 1, "telemetry_decoded": 1},
+    ).sort([("server_ts", -1), ("_id_redis", -1)]).skip(
+        (page - 1) * page_size
+    ).limit(page_size).to_list(page_size)
+
+    return {
+        "items": [{
+            "received_ms": (
+                doc.get("server_ts")
+                if doc.get("server_ts") is not None else doc.get("ts")
+            ),
+            "pts_ms": doc.get("pts_ms"),
+            "participant": doc.get("participant", "unknown"),
+            "telemetry": doc.get("telemetry", {}),
+            "packet_b64": doc.get("packet_b64"),
+            "packet_encoding": doc.get("packet_encoding"),
+            "telemetry_decoded": doc.get("telemetry_decoded"),
+        } for doc in docs],
+        "participants": sorted(name for name in participants if name),
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "pages": (total + page_size - 1) // page_size,
+    }
 
 
 @app.get("/telemetry/series")

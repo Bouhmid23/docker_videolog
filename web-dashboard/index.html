@@ -73,6 +73,21 @@
     .evrow:hover{background:#1c2128}.hi{color:#f0f6fc}
     .evhead{display:grid;grid-template-columns:60px 100px 60px 60px 60px 1fr;gap:6px;padding:3px 8px;font-size:9px;color:#6e7681;text-transform:uppercase;margin-bottom:2px}
     .events-scroll{min-width:0}
+    .history-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+    .history-toolbar label,.history-summary{font-size:12px;color:var(--muted)}
+    .history-toolbar select{min-height:36px;padding:6px 10px;border:1px solid #354354;border-radius:9px;background:#0b1118;color:var(--text)}
+    .history-scroll{max-height:560px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+    .history-table{width:100%;min-width:1180px;border-collapse:collapse;font-size:12px}
+    .history-table th,.history-table td{padding:9px 10px;border-bottom:1px solid #202c39;text-align:left;vertical-align:top;white-space:nowrap}
+    .history-table th{position:sticky;top:0;z-index:1;background:#111821;color:#91a1b2;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+    .history-table td{color:#c6d4e2;font-variant-numeric:tabular-nums}
+    .history-table tr:hover td{background:rgba(99,169,255,.05)}
+    .history-table details{white-space:normal;min-width:180px}
+    .history-table summary{color:var(--blue);cursor:pointer}
+    .history-table pre{max-width:420px;max-height:220px;overflow:auto;margin-top:8px;padding:10px;border-radius:8px;background:#090d13;color:#c6d4e2;font-size:10px;white-space:pre-wrap;overflow-wrap:anywhere}
+    .history-pagination{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:12px}
+    .history-pagination button{min-height:34px;padding:6px 12px;border:1px solid #354354;border-radius:8px;background:#111821;color:var(--text);cursor:pointer}
+    .history-pagination button:disabled{opacity:.45;cursor:default}
 
     @media(max-width:900px){.two-col,.charts-grid,.lower-grid{grid-template-columns:minmax(0,1fr)}}
     :root{color-scheme:dark;--bg:#090d13;--panel:#111821;--panel-soft:#151e29;--line:#263342;--muted:#8b9aab;--text:#e6edf3;--green:#37c978;--blue:#63a9ff}
@@ -247,9 +262,51 @@
   </div>
 </div>
 
+<section class="card" aria-labelledby="history-heading">
+  <div class="card-title" id="history-heading">Historique complet de la télémétrie</div>
+  <div class="history-toolbar">
+    <label for="history-participant">Trainee</label>
+    <select id="history-participant" onchange="changeHistoryParticipant(this.value)">
+      <option value="">Tous les trainees</option>
+    </select>
+    <label for="history-page-size">Mesures par page</label>
+    <select id="history-page-size" onchange="changeHistoryPageSize(this.value)">
+      <option value="25">25</option>
+      <option value="50" selected>50</option>
+      <option value="100">100</option>
+    </select>
+    <button class="room-btn" type="button" onclick="loadTelemetryHistory()">Actualiser</button>
+    <span class="history-summary" id="history-summary" aria-live="polite">Chargement de l’historique…</span>
+    <span class="history-summary">Rétention actuelle : 7 jours.</span>
+  </div>
+  <div class="history-scroll">
+    <table class="history-table">
+      <thead>
+        <tr>
+          <th>Réception</th><th>PTS (ms)</th><th>Trainee</th><th>FC</th>
+          <th>Vitesse</th><th>Cadence</th><th>Latitude</th><th>Longitude</th>
+          <th>Altitude</th><th>Cap</th><th>Données complètes</th>
+        </tr>
+      </thead>
+      <tbody id="history-rows">
+        <tr><td colspan="11" class="history-summary">Chargement de l’historique…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="history-pagination">
+    <button type="button" id="history-prev" onclick="changeHistoryPage(-1)" disabled>Précédente</button>
+    <span class="history-summary" id="history-page-label">Page 1 / 1</span>
+    <button type="button" id="history-next" onclick="changeHistoryPage(1)" disabled>Suivante</button>
+  </div>
+</section>
+
 <script>
 const API = '/api';
 let egressId = null, recStart = null, recTimer = null;
+let historyPage = 1;
+let historyPageSize = 50;
+let historyParticipant = '';
+let historyRequestId = 0;
 const roomLog = [];
 let currentRoom = 'poc-room';
 try { currentRoom = localStorage.getItem('videolog.currentRoom') || currentRoom; } catch {}
@@ -469,7 +526,9 @@ function connectSSE() {
     const d = parseSse(e); if (!d) return;
     if (d.room_name && d.room_name !== currentRoom) return;
     const role = d.role || 'trainee';
-    if (role === 'trainee') updateTraineeCard(d);
+    if (role === 'trainee' && liveRoomParticipants.has(String(d.participant || 'Trainee'))) {
+      updateTraineeCard(d);
+    }
     sseConnected = true;
     sseLastActivityAt = Date.now();
     updateConnectionBadge('LIVE');
@@ -635,6 +694,109 @@ async function pollEvents() {
   } catch(error) { showAppError(error, 'Chargement des événements'); }
 }
 
+async function loadTelemetryHistory() {
+  const requestId = ++historyRequestId;
+  const roomName = currentRoom;
+  const query = new URLSearchParams({
+    room: roomName,
+    page: String(historyPage),
+    page_size: String(historyPageSize),
+  });
+  if (historyParticipant) query.set('participant', historyParticipant);
+  const summary = document.getElementById('history-summary');
+  summary.textContent = 'Chargement de l’historique…';
+  try {
+    const data = await apiJson(`${API}/telemetry/history?${query}`);
+    if (requestId !== historyRequestId || roomName !== currentRoom) return;
+    if (!data || !Array.isArray(data.items) || !Array.isArray(data.participants)) {
+      throw new Error('Réponse invalide pour l’historique de télémétrie');
+    }
+    renderTelemetryHistory(data);
+  } catch (error) {
+    if (requestId !== historyRequestId) return;
+    summary.textContent = 'Impossible de charger l’historique.';
+    document.getElementById('history-rows').innerHTML =
+      `<tr><td colspan="11" class="inline-error">${escapeHtml(error.message)}</td></tr>`;
+    showAppError(error, 'Historique de télémétrie');
+  }
+}
+
+function renderTelemetryHistory(data) {
+  const filter = document.getElementById('history-participant');
+  const selected = historyParticipant;
+  filter.innerHTML = '<option value="">Tous les trainees</option>' +
+    data.participants.map(name =>
+      `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+  if (data.participants.includes(selected)) {
+    filter.value = selected;
+  } else {
+    historyParticipant = '';
+    filter.value = '';
+  }
+
+  const tbody = document.getElementById('history-rows');
+  if (!data.items.length) {
+    tbody.innerHTML = '<tr><td colspan="11" class="history-summary">Aucune mesure enregistrée pour ce filtre.</td></tr>';
+  } else {
+    tbody.innerHTML = data.items.map(item => {
+      const telemetry = item.telemetry && typeof item.telemetry === 'object' ? item.telemetry : {};
+      const gps = telemetry.gps && typeof telemetry.gps === 'object' ? telemetry.gps : {};
+      const receivedAt = Number(item.received_ms);
+      const receivedLabel = Number.isFinite(receivedAt) && receivedAt > 0
+        ? new Date(receivedAt).toLocaleString()
+        : '—';
+      const completeData = {
+        telemetry,
+        ...(item.packet_b64 ? {
+          packet_encoding: item.packet_encoding || 'base64',
+          packet_b64: item.packet_b64,
+          telemetry_decoded: item.telemetry_decoded,
+        } : {}),
+      };
+      return `<tr>
+        <td>${escapeHtml(receivedLabel)}</td>
+        <td>${escapeHtml(displayNumber(item.pts_ms, 0))}</td>
+        <td>${escapeHtml(item.participant || '—')}</td>
+        <td>${escapeHtml(telemetry.heart_rate ?? '—')}</td>
+        <td>${escapeHtml(displayNumber(telemetry.speed, 1))}</td>
+        <td>${escapeHtml(telemetry.cadence ?? '—')}</td>
+        <td>${escapeHtml(displayNumber(gps.lat, 6))}</td>
+        <td>${escapeHtml(displayNumber(gps.lng, 6))}</td>
+        <td>${escapeHtml(displayNumber(gps.altitude, 1))}</td>
+        <td>${escapeHtml(displayNumber(telemetry.bearing, 0))}</td>
+        <td><details><summary>Afficher</summary><pre>${escapeHtml(JSON.stringify(completeData, null, 2))}</pre></details></td>
+      </tr>`;
+    }).join('');
+  }
+
+  const total = Number(data.total) || 0;
+  const pages = Math.max(1, Number(data.pages) || 0);
+  const first = total ? (historyPage - 1) * historyPageSize + 1 : 0;
+  const last = Math.min(historyPage * historyPageSize, total);
+  document.getElementById('history-summary').textContent =
+    `${first}–${last} sur ${total} mesures · ${data.participants.length} trainee(s)`;
+  document.getElementById('history-page-label').textContent = `Page ${historyPage} / ${pages}`;
+  document.getElementById('history-prev').disabled = historyPage <= 1;
+  document.getElementById('history-next').disabled = historyPage >= pages;
+}
+
+function changeHistoryParticipant(participant) {
+  historyParticipant = participant;
+  historyPage = 1;
+  loadTelemetryHistory();
+}
+
+function changeHistoryPageSize(pageSize) {
+  historyPageSize = Number(pageSize);
+  historyPage = 1;
+  loadTelemetryHistory();
+}
+
+function changeHistoryPage(direction) {
+  historyPage = Math.max(1, historyPage + direction);
+  loadTelemetryHistory();
+}
+
 async function fetchRoomState() {
   const roomName = currentRoom;
   try {
@@ -784,7 +946,7 @@ function setPipe(id, txt) {
 
 function refreshDashboard() {
   clearAppError();
-  pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles(); loadRooms();
+  pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles(); loadRooms(); loadTelemetryHistory();
   pollMinioStatus();
   if (typeof EventSource !== 'undefined' && (!eventSource || eventSource.readyState === EventSource.CLOSED)) connectSSE();
 }
@@ -802,6 +964,9 @@ function clearRoomData() {
   traineeSeries = [];
   traineeCards.clear();
   liveRoomParticipants = new Set();
+  historyPage = 1;
+  historyParticipant = '';
+  document.getElementById('history-participant').value = '';
   const athleteGrid = document.getElementById('athlete-grid');
   athleteGrid.innerHTML = '<div class="empty-state" id="trainee-empty">En attente des données des trainees.</div>';
   [hrChart, spdChart, cadChart].forEach(chart => {
@@ -839,7 +1004,7 @@ async function setCurrentRoom(roomName) {
   clearRoomData();
   await loadRooms();
   connectSSE();
-  pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles();
+  pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles(); loadTelemetryHistory();
   pollMinioStatus();
   addLog(`Room active: ${currentRoom}`, '#58a6ff');
 }
@@ -864,7 +1029,7 @@ async function createRoom() {
     await loadRooms();
     connectSSE();
     addLog(`Room créée: ${currentRoom}`, '#3fb950');
-    pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles();
+    pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles(); loadTelemetryHistory();
   } catch(error) {
     showAppError(error, 'Création de room');
   }
@@ -875,7 +1040,7 @@ updateRoomLabels();
 loadRooms().then(() => {
   connectSSE();
   addLog(`Dashboard démarré · ${currentRoom}`, '#3fb950');
-  pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles();
+  pollStats(); pollSeries(); pollEvents(); fetchRoomState(); fetchRecFiles(); loadTelemetryHistory();
   pollMinioStatus();
 });
 setInterval(pollStats, 5000);
@@ -885,6 +1050,9 @@ setInterval(pollEvents, 2000);
 setInterval(loadRooms, 10000);
 setInterval(fetchRoomState, 2000);
 setInterval(fetchRecFiles, 15000);
+setInterval(() => {
+  if (historyPage === 1) loadTelemetryHistory();
+}, 10000);
 setInterval(() => {
   if (!sseConnected || Date.now() - sseLastActivityAt <= 45000) return;
   const staleSource = eventSource;

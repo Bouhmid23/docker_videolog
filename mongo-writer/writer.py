@@ -148,6 +148,14 @@ async def writer():
         await alerts.create_index("inserted_at", expireAfterSeconds=7*24*3600)
     except Exception: pass
 
+    try:
+        await col.create_index([
+            ("room_name", 1), ("participant", 1), ("server_ts", -1),
+            ("_id_redis", -1),
+        ])
+    except Exception:
+        log.exception("Failed to create telemetry history index")
+
     buf_tel, buf_alt = [], []
     acks_tel, acks_alt = [], []
     total = 0
