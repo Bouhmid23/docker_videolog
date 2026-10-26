@@ -13,6 +13,9 @@ db.telemetry.createIndex({ ts: 1 });
 db.telemetry.createIndex({ pts_ms: 1 });
 db.telemetry.createIndex({ room_name: 1, pts_ms: 1 });
 db.telemetry.createIndex({ room_name: 1, server_ts: 1 });
+db.telemetry.createIndex({
+  room_name: 1, participant: 1, inserted_at: -1, server_ts: -1
+});
 
 // Collection sessions
 db.createCollection('sessions');

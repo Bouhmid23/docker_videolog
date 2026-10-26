@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request, HTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
 import redis.asyncio as aioredis
 from livekit import api as lkapi
+from livekit.protocol import room as proto_room
 from livekit.protocol import egress as proto_egress
 
 logging.basicConfig(level=logging.INFO,
@@ -37,23 +38,171 @@ RECORD_MIN_PARTICIPANTS = int(os.environ.get("RECORD_MIN_PARTICIPANTS", "2"))
 STOP_GRACE_DELAY        = int(os.environ.get("STOP_GRACE_DELAY", "10"))
 # Participants internes a exclure du comptage
 INTERNAL_IDENTITIES     = {"telemetry-agent", "egress", "livekit-egress"}
+TELEMETRY_IDLE_TIMEOUT  = 60
+PARTICIPANT_SWEEP_INTERVAL = 15
 
 app = FastAPI(title="Egress Webhook")
 mongo     = AsyncIOMotorClient(MONGO_URL)
 col       = mongo.videolog.recordings
+telemetry_col = mongo.videolog.telemetry
 rooms_col = mongo.videolog.room_state
 r: aioredis.Redis = None
 
 # { room_name -> {"participants": set(), "egress_ids": set(), "stop_task": Task} }
 _state: dict = {}
+_participant_sweeper: asyncio.Task | None = None
 
 
 @app.on_event("startup")
 async def startup():
-    global r
+    global r, _participant_sweeper
     r = aioredis.from_url(REDIS_URL, decode_responses=True)
+    await telemetry_col.create_index(
+        [("room_name", 1), ("participant", 1), ("inserted_at", -1),
+         ("server_ts", -1)])
+    _participant_sweeper = asyncio.create_task(_sweep_inactive_participants())
     log.info(f"✅ Webhook pret | min_participants={RECORD_MIN_PARTICIPANTS} "
-             f"grace={STOP_GRACE_DELAY}s")
+             f"grace={STOP_GRACE_DELAY}s "
+             f"telemetry_idle_timeout={TELEMETRY_IDLE_TIMEOUT}s")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    if _participant_sweeper:
+        _participant_sweeper.cancel()
+        try:
+            await _participant_sweeper
+        except asyncio.CancelledError:
+            pass
+    if r:
+        await r.aclose()
+
+
+def _participant_joined_at(participant) -> float | None:
+    joined_at_ms = getattr(participant, "joined_at_ms", 0)
+    if joined_at_ms:
+        return float(joined_at_ms) / 1000
+    joined_at = getattr(participant, "joined_at", 0)
+    if joined_at:
+        return float(joined_at)
+    return None
+
+
+def _telemetry_activity_at(document: dict) -> float | None:
+    inserted_at = document.get("inserted_at")
+    if isinstance(inserted_at, datetime):
+        if inserted_at.tzinfo is None:
+            inserted_at = inserted_at.replace(tzinfo=UTC)
+        return inserted_at.timestamp()
+    for field in ("server_ts", "ts"):
+        value = document.get(field)
+        if value is not None:
+            try:
+                return float(value) / 1000
+            except (TypeError, ValueError, OverflowError):
+                continue
+    return None
+
+
+async def _sweep_inactive_participants():
+    while True:
+        lk = None
+        try:
+            lk = lkapi.LiveKitAPI(LIVEKIT_URL, API_KEY, API_SECRET)
+            rooms = await lk.room.list_rooms(proto_room.ListRoomsRequest())
+            now = time.time()
+            live_participants_by_room = {}
+            for room in rooms.rooms:
+                participants = await lk.room.list_participants(
+                    proto_room.ListParticipantsRequest(room=room.name))
+                live_participants = {
+                    participant.identity for participant in participants.participants
+                }
+                live_participants_by_room[room.name] = live_participants
+                for participant in participants.participants:
+                    identity = participant.identity
+                    if identity.lower() in INTERNAL_IDENTITIES:
+                        continue
+
+                    latest = await telemetry_col.find_one(
+                        {"room_name": room.name, "participant": identity},
+                        {"_id": 0, "inserted_at": 1, "server_ts": 1, "ts": 1,
+                         "telemetry.role": 1},
+                        sort=[("inserted_at", -1), ("server_ts", -1)],
+                    )
+                    if latest:
+                        role = (latest.get("telemetry") or {}).get("role", "trainee")
+                        if role != "trainee":
+                            continue
+                        telemetry_activity = _telemetry_activity_at(latest)
+                    else:
+                        telemetry_activity = None
+
+                    activity_times = [
+                        activity for activity in (
+                            telemetry_activity, _participant_joined_at(participant))
+                        if activity is not None
+                    ]
+                    if (not activity_times
+                            or now - max(activity_times) < TELEMETRY_IDLE_TIMEOUT):
+                        continue
+
+                    log.warning(
+                        "Expelling inactive trainee %s from room %s "
+                        "(no telemetry for at least %ss)",
+                        identity, room.name, TELEMETRY_IDLE_TIMEOUT,
+                    )
+                    await lk.room.remove_participant(
+                        proto_room.RoomParticipantIdentity(
+                            room=room.name, identity=identity))
+                    live_participants.discard(identity)
+
+            stored_rooms = await rooms_col.find(
+                {"finished": {"$ne": True}},
+                {"_id": 0, "room_name": 1, "participants": 1},
+            ).to_list(None)
+            room_names = set(live_participants_by_room)
+            room_names.update(
+                document["room_name"] for document in stored_rooms
+                if document.get("room_name"))
+            stored_by_name = {
+                document["room_name"]: document for document in stored_rooms
+                if document.get("room_name")
+            }
+            for room_name in room_names:
+                live_participants = live_participants_by_room.get(room_name, set())
+                stored_participants = set(
+                    stored_by_name.get(room_name, {}).get("participants") or [])
+                if stored_participants == live_participants:
+                    continue
+
+                await rooms_col.update_one(
+                    {"room_name": room_name},
+                    {"$set": {
+                        "room_name": room_name,
+                        "participants": sorted(live_participants),
+                        "count": sum(
+                            identity not in INTERNAL_IDENTITIES
+                            for identity in live_participants),
+                        "updated_at": datetime.now(UTC),
+                    }},
+                    upsert=True,
+                )
+                if room_name in _state:
+                    previous_count = _count(room_name)
+                    _state[room_name]["participants"] = set(live_participants)
+                    current_count = _count(room_name)
+                    if (previous_count >= RECORD_MIN_PARTICIPANTS
+                            and current_count < RECORD_MIN_PARTICIPANTS):
+                        await _schedule_stop(room_name)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Inactive participant sweep failed")
+        finally:
+            if lk:
+                await lk.aclose()
+        await asyncio.sleep(PARTICIPANT_SWEEP_INTERVAL)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
