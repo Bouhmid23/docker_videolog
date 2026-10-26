@@ -9,7 +9,9 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 import redis.asyncio as aioredis
+from redis.exceptions import RedisError
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
@@ -26,7 +28,7 @@ MINIO_SK   = os.environ["MINIO_SECRET_KEY"]
 REC_BUCKET = "recordings"
 MINIO_PUBLIC_URL = os.environ["MINIO_PUBLIC_URL"]
 
-app = FastAPI(title="Videolog Dashboard API")
+app = FastAPI(title="Videolog Dashboard API", docs_url=None)
 mongo  = AsyncIOMotorClient(MONGO_URL)
 col    = mongo.videolog.telemetry
 recs   = mongo.videolog.recordings
@@ -39,6 +41,20 @@ log = logging.getLogger(__name__)
 
 class RemoveParticipantBody(BaseModel):
     identity: str = Field(min_length=1, max_length=128)
+
+
+@app.get("/docs", include_in_schema=False)
+async def api_docs():
+    return get_swagger_ui_html(
+        openapi_url="/api/openapi.json",
+        title=f"{app.title} - Swagger UI",
+        oauth2_redirect_url="/api/docs/oauth2-redirect",
+    )
+
+
+@app.get("/docs/oauth2-redirect", include_in_schema=False)
+async def api_docs_oauth_redirect():
+    return get_swagger_ui_oauth2_redirect_html()
 
 
 def _minio_client(public: bool = False):
@@ -444,23 +460,53 @@ async def sse_events(request: Request, room: str | None = None):
     Subscribe aux channels Redis: telemetry:latest, alerts, egress:events, room:events
     """
     async def event_generator() -> AsyncGenerator[str, None]:
-        pubsub = r.pubsub()
-        await pubsub.subscribe("alerts", "egress:events", "room:events")
+        pubsub = None
         try:
-            # Envoyer un ping initial pour établir la connexion
             yield "event: ping\ndata: {}\n\n"
-
-            # Dernier event de télémétrie en polling léger (500ms)
             last_ts = 0.0
             tick = 0
+            last_ping = time.monotonic()
+            next_subscribe = 0.0
 
             while True:
                 if await request.is_disconnected():
                     break
 
-                # Vérifier les messages Redis pub/sub (non-bloquant)
-                msg = await pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=0.05)
+                now = time.monotonic()
+                if pubsub is None and now >= next_subscribe:
+                    candidate = None
+                    try:
+                        candidate = r.pubsub()
+                        await asyncio.wait_for(
+                            candidate.subscribe("alerts", "egress:events", "room:events"),
+                            timeout=5,
+                        )
+                        pubsub = candidate
+                    except (RedisError, OSError, TimeoutError) as error:
+                        log.warning("SSE Redis subscription failed: %s", error)
+                        if candidate:
+                            try:
+                                await candidate.aclose()
+                            except RedisError as close_error:
+                                log.warning("SSE Redis cleanup failed: %s", close_error)
+                        next_subscribe = time.monotonic() + 5
+
+                if pubsub:
+                    try:
+                        msg = await pubsub.get_message(
+                            ignore_subscribe_messages=True, timeout=0.05)
+                    except (RedisError, OSError, TimeoutError) as error:
+                        log.warning("SSE Redis connection lost: %s", error)
+                        try:
+                            await pubsub.aclose()
+                        except RedisError as close_error:
+                            log.warning("SSE Redis cleanup failed: %s", close_error)
+                        pubsub = None
+                        next_subscribe = time.monotonic() + 1
+                        msg = None
+                else:
+                    msg = None
+
                 if msg and msg["type"] == "message":
                     channel = msg["channel"]
                     try:
@@ -502,13 +548,24 @@ async def sse_events(request: Request, room: str | None = None):
                         }
                         yield f"event: telemetry\ndata: {json.dumps(payload)}\n\n"
 
+                if time.monotonic() - last_ping >= 15:
+                    yield "event: ping\ndata: {}\n\n"
+                    last_ping = time.monotonic()
+
                 await asyncio.sleep(0.05)
 
         except asyncio.CancelledError:
-            pass
+            raise
         finally:
-            await pubsub.unsubscribe()
-            await pubsub.aclose()
+            if pubsub:
+                try:
+                    await pubsub.unsubscribe()
+                except RedisError as error:
+                    log.warning("SSE Redis unsubscribe failed: %s", error)
+                try:
+                    await pubsub.aclose()
+                except RedisError as error:
+                    log.warning("SSE Redis cleanup failed: %s", error)
 
     return StreamingResponse(
         event_generator(),
