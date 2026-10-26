@@ -111,7 +111,7 @@ Les flux Redis sont limités à 100 000 événements de télémétrie et 10 000 
 
 Les paquets LiveKit du topic `telemetry` au format JSON restent interprétés comme avant. Les paquets binaires mobiles version 2 (21 octets) sont décodés en mesures, tout en conservant les octets reçus dans Redis puis MongoDB en Base64. Les paquets inconnus ou invalides sont conservés sans être interprétés. Les données structurées `posture` sont exclues.
 
-Le lecteur charge les échantillons MongoDB pour l'enregistrement sélectionné et place chaque échantillon sur la timeline vidéo à partir de son timestamp mobile et de l'heure de début du fichier Egress. Le curseur suit la lecture et les sauts de la vidéo. La synchronisation dépend de l'alignement de l'horloge du mobile et de celle du VPS.
+Le lecteur charge les échantillons MongoDB pour l'enregistrement sélectionné et place chaque échantillon sur la timeline vidéo à partir de son timestamp mobile et de l'heure de début du fichier Egress. Les courbes de vitesse de tous les participants apparaissent sur le même graphique, avec une couleur et une légende par identité. Les participants peuvent être filtrés indépendamment pour la carte GPS et les valeurs courantes (vitesse, fréquence cardiaque, cadence et bearing). Le curseur suit la lecture et les sauts de la vidéo. La synchronisation dépend de l'alignement de l'horloge du mobile et de celle du VPS.
 
 ## Prérequis
 

@@ -61,6 +61,27 @@
     }
 
     .telemetry-card { padding-bottom: 10px; }
+    .participant-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+    .participant-filter {
+      display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px;
+      border: 1px solid #2a3847; border-radius: 999px; color: #c9d1d9;
+      font-size: 12px; cursor: pointer; background: rgba(8,13,19,.38);
+    }
+    .participant-filter input { accent-color: #58a6ff; }
+    .participant-color { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+    .participant-name { overflow-wrap: anywhere; }
+    .telemetry-users { display: flex; flex-direction: column; gap: 12px; }
+    .telemetry-user { padding-bottom: 12px; border-bottom: 1px solid #263342; }
+    .telemetry-user:last-child { padding-bottom: 0; border-bottom: 0; }
+    .telemetry-user-name {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+      color: #e6edf3; font-size: 13px; font-weight: 600; overflow-wrap: anywhere;
+    }
+    .telemetry-user .gauges { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .telemetry-user .gauge { padding: 9px 4px; min-height: 70px; }
+    .telemetry-user .gauge-val { font-size: 20px; }
+    .telemetry-user .gauge-lbl { font-size: 10px; }
+    .telemetry-empty { color: #8b9aab; font-size: 12px; }
     .gauges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .gauge {
       background: linear-gradient(180deg, #0d1117, #11161d); border-radius: 8px; padding: 12px 10px;
@@ -71,7 +92,7 @@
     .gauge-lbl { font-size: 11px; color: #6e7681; margin-top: 6px; }
     .gauge-unit { font-size: 12px; color: #8b949e; font-weight: 400; }
 
-    canvas.mini { max-height: 90px; }
+    canvas.mini { max-height: 220px; }
 
     .rec-list { display: flex; flex-direction: column; gap: 6px; }
     .rec-item {
@@ -118,18 +139,6 @@
         ),
         #0d1117;
     }
-    .map-avatar {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      display: grid;
-      place-items: center;
-      background: radial-gradient(circle at 35% 35%, #f0f6fc, #58a6ff 55%, #1f6feb 100%);
-      border: 2px solid rgba(240, 246, 252, 0.95);
-      box-shadow: 0 0 0 4px rgba(88, 166, 255, 0.18);
-      font-size: 14px;
-      line-height: 1;
-    }
     .map-card { padding: 12px; }
     .map-head {
       display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -172,6 +181,7 @@
     .rec-item{padding:12px;border-color:#2a3847;background:rgba(8,13,19,.38)}.rec-item:hover{background:#172433}.rec-item.active{background:#12271e;border-color:#2e9b5d}
     #map{height:clamp(220px,28vh,340px)}.timeline-bar{height:9px;border:1px solid #344455;touch-action:none}.timeline-progress{background:linear-gradient(90deg,#2bbf70,#71e2a4)}
     .pts-display{font-variant-numeric:tabular-nums;color:var(--text)}
+    .chart-hint{margin:-3px 0 12px;color:var(--muted);font-size:11px}
     #app-status{display:none;align-items:center;justify-content:space-between;gap:14px;padding:12px 16px;margin:0 0 16px;border:1px solid #8e3434;border-radius:10px;background:#281a1d;color:#ffb4ad;font-size:13px}
     #app-status.visible{display:flex}#app-status button{border:1px solid #9e4540;border-radius:7px;background:#3b2024;color:#fff;padding:7px 11px;cursor:pointer}
     .inline-error,.empty-state{padding:14px;border:1px dashed #354354;border-radius:8px;color:var(--muted);font-size:12px;line-height:1.5}
@@ -274,27 +284,24 @@
     </div>
 
     <div class="card" style="margin-top:14px">
-      <div class="card-title">Vitesse synchronisée avec la vidéo</div>
+      <div class="card-title">Vitesse par utilisateur</div>
+      <div class="chart-hint">Toutes les courbes sont affichées ensemble ; la légende identifie chaque utilisateur.</div>
       <canvas id="chart-speed-sync" class="mini"></canvas>
     </div>
   </div>
 
   <div class="sidebar">
+    <div class="card">
+      <div class="card-title">Utilisateurs visibles sur la carte et la télémétrie</div>
+      <div class="participant-filters" id="participant-filters">
+        <div class="telemetry-empty">Sélectionnez un enregistrement pour afficher les utilisateurs.</div>
+      </div>
+    </div>
+
     <div class="card telemetry-card">
       <div class="card-title">Télémétrie au temps courant</div>
-      <div class="gauges">
-        <div class="gauge">
-          <div class="gauge-val" id="g-speed">--</div>
-          <div class="gauge-lbl">Vitesse <span class="gauge-unit">km/h</span></div>
-        </div>
-        <div class="gauge">
-          <div class="gauge-val" id="g-hrm">--</div>
-          <div class="gauge-lbl">HRM <span class="gauge-unit">bpm</span></div>
-        </div>
-        <div class="gauge">
-          <div class="gauge-val" id="g-cad">--</div>
-          <div class="gauge-lbl">Cadence <span class="gauge-unit">rpm</span></div>
-        </div>
+      <div class="telemetry-users" id="telemetry-users">
+        <div class="telemetry-empty">Aucune télémétrie chargée.</div>
       </div>
     </div>
 
@@ -319,11 +326,14 @@
 const API = '/api';
 
 let telemetryData = [];
+let telemetryByParticipant = new Map();
+let participantColors = new Map();
+let visibleParticipants = new Set();
 let videoDuration = 0;
 let activeRec = null;
 let mapInstance = null;
-let mapPath = null;
-let mapMarker = null;
+let mapPaths = new Map();
+let mapMarkers = new Map();
 let mapTiles = null;
 let mapUsingTiles = false;
 let loadSequence = 0;
@@ -370,43 +380,85 @@ function makeChart(canvas, config) {
 const speedSyncChart = makeChart(document.getElementById('chart-speed-sync'), {
   type: 'line',
   data: {
-    labels: [],
-    datasets: [
-      {
-        data: [],
-        borderColor: '#3fb950',
-        backgroundColor: 'rgba(63,185,80,.08)',
-        fill: true,
-        borderWidth: 1.5,
-        pointRadius: 0,
-        tension: 0.4,
-        label: 'Speed'
-      },
-      {
-        data: [],
-        borderColor: '#f85149',
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        borderDash: [3, 3],
-        pointRadius: 5,
-        pointHoverRadius: 6,
-        label: 'Temps vidéo courant',
-        yAxisID: 'cursor'
-      },
-    ]
+    datasets: []
   },
   options: {
     responsive: true,
     maintainAspectRatio: true,
     animation: false,
-    plugins: { legend: { display: false } },
+    parsing: false,
+    plugins: {
+      legend: {
+        display: true,
+        labels: {
+          color: '#bac8d7',
+          usePointStyle: true,
+          boxWidth: 8,
+          filter: (item) => item.text !== 'Position de lecture'
+        }
+      },
+      decimation: { enabled: true, algorithm: 'min-max' },
+      tooltip: { callbacks: { title: (items) => items.length ? `${items[0].parsed.x.toFixed(1)} s` : '' } }
+    },
     scales: {
-      x: { display: false },
-      y: { grid: { color: '#21262d' }, ticks: { color: '#8b949e', font: { size: 10 } } },
-      cursor: { display: false, min: 0, max: 1 }
+      x: {
+        type: 'linear',
+        title: { display: true, text: 'Temps vidéo (s)', color: '#8b9aab' },
+        grid: { color: '#21262d' },
+        ticks: { color: '#8b949e', callback: (value) => `${Number(value).toFixed(0)}s` }
+      },
+      y: {
+        beginAtZero: true,
+        title: { display: true, text: 'Vitesse (km/h)', color: '#8b9aab' },
+        grid: { color: '#21262d' },
+        ticks: { color: '#8b949e', font: { size: 10 } }
+      }
     }
   }
 });
+
+const participantPalette = [
+  '#58a6ff', '#3fb950', '#f85149', '#d2a8ff', '#f2cc60', '#39c5cf',
+  '#ff7b72', '#a5d6ff', '#ffa657', '#7ee787', '#db61a2', '#c9d1d9'
+];
+
+function participantColor(identity) {
+  return participantColors.get(identity) || participantPalette[0];
+}
+
+function updateSpeedChart(videoMs = null) {
+  const datasets = [...telemetryByParticipant.entries()].map(([identity, points]) => ({
+    label: identity,
+    data: points.filter((point) => Number.isFinite(point.speed)).map((point) => ({
+      x: point.video_ms / 1000,
+      y: point.speed
+    })),
+    borderColor: participantColor(identity),
+    backgroundColor: participantColor(identity),
+    borderWidth: 1.7,
+    pointRadius: 0,
+    pointHitRadius: 5,
+    tension: 0.15,
+    spanGaps: false,
+    parsing: false
+  }));
+  const maxSpeed = telemetryData.reduce((max, point) =>
+    Number.isFinite(point.speed) ? Math.max(max, point.speed) : max, 1);
+  datasets.push({
+    label: 'Position de lecture',
+    data: Number.isFinite(videoMs)
+      ? [{ x: videoMs / 1000, y: 0 }, { x: videoMs / 1000, y: maxSpeed }]
+      : [],
+    borderColor: '#f85149',
+    borderWidth: 1,
+    borderDash: [4, 4],
+    pointRadius: 0,
+    showLine: true,
+    parsing: false
+  });
+  speedSyncChart.data.datasets = datasets;
+  speedSyncChart.update('none');
+}
 
 function normalizeTelemetryPoint(point) {
   const asNumber = (value) => value == null ? Number.NaN : Number(value);
@@ -415,7 +467,8 @@ function normalizeTelemetryPoint(point) {
   const cadence = asNumber(point.cadence ?? point.rpm);
   const hrm = asNumber(point.hrm ?? point.heart_rate);
   const speed = asNumber(point.speed);
-  return { ...point, speed, lat, lng, cadence, hrm };
+  const bearing = asNumber(point.bearing);
+  return { ...point, speed, lat, lng, cadence, hrm, bearing };
 }
 
 function hasValidCoords(point) {
@@ -455,9 +508,7 @@ function ensureMap() {
 
   mapTiles.on('load', () => {
     mapUsingTiles = true;
-    if (telemetryData.length) {
-      updateMapStatus(`${telemetryData.filter(hasValidCoords).length} points GPS charges - carte Leaflet`);
-    }
+    if (telemetryData.length) updateMapStatus(mapStatusText());
   });
 
   mapTiles.on('tileerror', () => {
@@ -475,65 +526,191 @@ function updateMapStatus(message) {
   document.getElementById('map-status').textContent = message;
 }
 
-function initMapTrack(data) {
+function mapStatusText() {
+  const visible = [...visibleParticipants].filter((identity) => telemetryByParticipant.has(identity));
+  const gpsCount = visible.reduce((count, identity) =>
+    count + telemetryByParticipant.get(identity).filter(hasValidCoords).length, 0);
+  if (!visible.length) return 'Aucun utilisateur sélectionné';
+  if (!gpsCount) return 'Aucune coordonnée GPS exploitable pour les utilisateurs sélectionnés';
+  return `${visible.length} utilisateur(s) · ${gpsCount} points GPS${mapUsingTiles ? ' · carte Leaflet' : ''}`;
+}
+
+function initMapTrack() {
   const map = ensureMap();
   if (!map) return;
-  const gpsPoints = data.filter(hasValidCoords);
+  for (const layer of [...mapPaths.values(), ...mapMarkers.values()]) map.removeLayer(layer);
+  mapPaths.clear();
+  mapMarkers.clear();
+  const allLatLngs = [];
 
-  if (mapPath) {
-    map.removeLayer(mapPath);
-    mapPath = null;
+  for (const identity of visibleParticipants) {
+    const points = telemetryByParticipant.get(identity) || [];
+    const gpsPoints = points.filter(hasValidCoords);
+    if (!gpsPoints.length) continue;
+
+    const color = participantColor(identity);
+    const latLngs = gpsPoints.map((point) => [point.lat, point.lng]);
+    const path = L.polyline(latLngs, { color, weight: 3, opacity: 0.85 }).addTo(map);
+    mapPaths.set(identity, path);
+    for (const latLng of latLngs) allLatLngs.push(latLng);
+
+    const marker = L.circleMarker(latLngs[0], {
+      radius: 7,
+      color: '#f0f6fc',
+      weight: 2,
+      fillColor: color,
+      fillOpacity: 1
+    }).addTo(map);
+    const label = document.createElement('span');
+    label.textContent = identity;
+    marker.bindTooltip(label);
+    mapMarkers.set(identity, marker);
   }
-  if (mapMarker) {
-    map.removeLayer(mapMarker);
-    mapMarker = null;
-  }
 
-  if (!gpsPoints.length) {
-    updateMapStatus('Aucune coordonnee exploitable dans cette session');
-    setTimeout(() => map.invalidateSize(), 0);
-    return;
-  }
-
-  const latLngs = gpsPoints.map((d) => [d.lat, d.lng]);
-  mapPath = L.polyline(latLngs, {
-    color: '#3fb950',
-    weight: 3,
-    opacity: 0.85
-  }).addTo(map);
-
-  mapMarker = L.marker(latLngs[0], {
-    icon: L.divIcon({
-      className: '',
-      html: '<div class="map-avatar" aria-hidden="true"></div>',
-      iconSize: [28, 28],
-      iconAnchor: [14, 14]
-    })
-  }).addTo(map);
-
-  map.fitBounds(mapPath.getBounds(), { padding: [18, 18] });
+  if (allLatLngs.length) map.fitBounds(L.latLngBounds(allLatLngs), { padding: [18, 18] });
   setTimeout(() => map.invalidateSize(), 0);
-  updateMapStatus(`${gpsPoints.length} points GPS charges - carte Leaflet`);
+  updateMapStatus(mapStatusText());
 }
 
-function updateMapPosition(point) {
-  if (!mapMarker || !hasValidCoords(point)) return;
-  mapMarker.setLatLng([point.lat, point.lng]);
-}
-
-function findTelemetryAtVideoMs(videoMs) {
-  if (!telemetryData.length) return null;
+function findTelemetryAtVideoMs(points, videoMs) {
   let lo = 0;
-  let hi = telemetryData.length;
+  let hi = points.length;
 
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (telemetryData[mid].video_ms <= videoMs) lo = mid + 1;
+    if (points[mid].video_ms <= videoMs) lo = mid + 1;
     else hi = mid;
   }
 
-  const idx = lo - 1;
-  return idx >= 0 ? { data: telemetryData[idx], idx } : null;
+  return lo > 0 ? { data: points[lo - 1], index: lo - 1 } : null;
+}
+
+function renderParticipantFilters() {
+  const container = document.getElementById('participant-filters');
+  container.replaceChildren();
+  for (const [identity, points] of telemetryByParticipant) {
+    const label = document.createElement('label');
+    label.className = 'participant-filter';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = visibleParticipants.has(identity);
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) visibleParticipants.add(identity);
+      else visibleParticipants.delete(identity);
+      renderCurrentTelemetry(Number(document.getElementById('player').currentTime || 0) * 1000);
+      initMapTrack();
+      updateMapPositions(Number(document.getElementById('player').currentTime || 0) * 1000);
+    });
+    const swatch = document.createElement('span');
+    swatch.className = 'participant-color';
+    swatch.style.backgroundColor = participantColor(identity);
+    const name = document.createElement('span');
+    name.className = 'participant-name';
+    name.textContent = `${identity} (${points.length})`;
+    label.append(checkbox, swatch, name);
+    container.append(label);
+  }
+
+  if (!telemetryByParticipant.size) {
+    const empty = document.createElement('div');
+    empty.className = 'telemetry-empty';
+    empty.textContent = 'Aucun utilisateur détecté dans cet enregistrement.';
+    container.append(empty);
+  }
+}
+
+function createGauge(value, label, unit) {
+  const gauge = document.createElement('div');
+  gauge.className = 'gauge';
+  const gaugeValue = document.createElement('div');
+  gaugeValue.className = 'gauge-val';
+  gaugeValue.textContent = value;
+  const gaugeLabel = document.createElement('div');
+  gaugeLabel.className = 'gauge-lbl';
+  gaugeLabel.append(document.createTextNode(`${label} `));
+  const gaugeUnit = document.createElement('span');
+  gaugeUnit.className = 'gauge-unit';
+  gaugeUnit.textContent = unit;
+  gaugeLabel.append(gaugeUnit);
+  gauge.append(gaugeValue, gaugeLabel);
+  return gauge;
+}
+
+function renderCurrentTelemetry(videoMs) {
+  const container = document.getElementById('telemetry-users');
+  container.replaceChildren();
+  const identities = [...visibleParticipants].filter((identity) => telemetryByParticipant.has(identity));
+  if (!identities.length) {
+    const empty = document.createElement('div');
+    empty.className = 'telemetry-empty';
+    empty.textContent = telemetryByParticipant.size
+      ? 'Aucun utilisateur sélectionné.'
+      : 'Aucune télémétrie chargée.';
+    container.append(empty);
+    return;
+  }
+
+  for (const identity of identities) {
+    const result = findTelemetryAtVideoMs(telemetryByParticipant.get(identity), videoMs);
+    const point = result?.data;
+    const section = document.createElement('section');
+    section.className = 'telemetry-user';
+    const name = document.createElement('div');
+    name.className = 'telemetry-user-name';
+    const swatch = document.createElement('span');
+    swatch.className = 'participant-color';
+    swatch.style.backgroundColor = participantColor(identity);
+    const label = document.createElement('span');
+    label.textContent = identity;
+    name.append(swatch, label);
+    const gauges = document.createElement('div');
+    gauges.className = 'gauges';
+    gauges.append(
+      createGauge(Number.isFinite(point?.speed) ? point.speed.toFixed(1) : '--', 'Vitesse', 'km/h'),
+      createGauge(Number.isFinite(point?.hrm) ? String(point.hrm) : '--', 'HRM', 'bpm'),
+      createGauge(Number.isFinite(point?.cadence) ? String(point.cadence) : '--', 'Cadence', 'rpm'),
+      createGauge(Number.isFinite(point?.bearing) ? `${point.bearing}°` : '--', 'Bearing', '')
+    );
+    section.append(name, gauges);
+    container.append(section);
+  }
+}
+
+function updateMapPositions(videoMs) {
+  for (const identity of visibleParticipants) {
+    const points = telemetryByParticipant.get(identity) || [];
+    const current = findTelemetryAtVideoMs(points, videoMs);
+    let position = null;
+    for (let index = current?.index ?? -1; index >= 0; index -= 1) {
+      if (hasValidCoords(points[index])) {
+        position = points[index];
+        break;
+      }
+    }
+
+    const marker = mapMarkers.get(identity);
+    if (!position) {
+      if (marker && mapInstance) {
+        mapInstance.removeLayer(marker);
+        mapMarkers.delete(identity);
+      }
+      continue;
+    }
+    if (marker) marker.setLatLng([position.lat, position.lng]);
+    else if (mapInstance) {
+      const created = L.circleMarker([position.lat, position.lng], {
+        radius: 7,
+        color: '#f0f6fc',
+        weight: 2,
+        fillColor: participantColor(identity),
+        fillOpacity: 1
+      }).addTo(mapInstance);
+      const label = document.createElement('span');
+      label.textContent = identity;
+      created.bindTooltip(label);
+      mapMarkers.set(identity, created);
+    }
+  }
 }
 
 function onTimeUpdate() {
@@ -549,24 +726,14 @@ function onTimeUpdate() {
     document.getElementById('tl-bar').setAttribute('aria-valuenow', String(Math.round(pct)));
   }
 
-  const result = findTelemetryAtVideoMs(videoMs);
-  if (!result) {
-    document.getElementById('g-speed').textContent = '--';
-    document.getElementById('g-hrm').textContent = '--';
-    document.getElementById('g-cad').textContent = '--';
-    speedSyncChart.data.datasets[1].data = [];
-    speedSyncChart.update('none');
-    return;
+  renderCurrentTelemetry(videoMs);
+  updateMapPositions(videoMs);
+  const cursor = speedSyncChart.data.datasets.find((dataset) => dataset.label === 'Position de lecture');
+  if (cursor) {
+    const maxSpeed = telemetryData.reduce((max, point) =>
+      Number.isFinite(point.speed) ? Math.max(max, point.speed) : max, 1);
+    cursor.data = [{ x: videoMs / 1000, y: 0 }, { x: videoMs / 1000, y: maxSpeed }];
   }
-
-  const { data, idx } = result;
-  document.getElementById('g-speed').textContent = Number.isFinite(data.speed) ? data.speed.toFixed(0) : '--';
-  document.getElementById('g-hrm').textContent = Number.isFinite(data.hrm) ? data.hrm.toFixed(0) : '--';
-  document.getElementById('g-cad').textContent = Number.isFinite(data.cadence) ? data.cadence.toFixed(0) : '--';
-
-  updateMapPosition(data);
-
-  speedSyncChart.data.datasets[1].data = telemetryData.map((_, i) => i === idx ? 0.5 : null);
   speedSyncChart.update('none');
 }
 
@@ -683,13 +850,13 @@ async function loadRecording(rec) {
 async function loadTelemetry(egressId) {
   const sequence = loadSequence;
   telemetryData = [];
-  speedSyncChart.data.labels = [];
-  speedSyncChart.data.datasets[0].data = [];
-  speedSyncChart.data.datasets[1].data = [];
-  speedSyncChart.update('none');
-  document.getElementById('g-speed').textContent = '--';
-  document.getElementById('g-hrm').textContent = '--';
-  document.getElementById('g-cad').textContent = '--';
+  telemetryByParticipant = new Map();
+  participantColors = new Map();
+  visibleParticipants = new Set();
+  updateSpeedChart();
+  document.getElementById('participant-filters').textContent = 'Chargement des utilisateurs…';
+  renderCurrentTelemetry(0);
+  initMapTrack();
   try {
     const data = await apiJson(`${API}/recordings/${encodeURIComponent(egressId)}/telemetry`);
     if (sequence !== loadSequence) return;
@@ -697,26 +864,41 @@ async function loadTelemetry(egressId) {
     telemetryData = data.filter(point => Number.isFinite(Number(point?.video_ms)))
       .map(normalizeTelemetryPoint).sort((a, b) => a.video_ms - b.video_ms);
 
+    telemetryData.forEach((point) => {
+      point.participant = typeof point.participant === 'string' && point.participant
+        ? point.participant : 'unknown';
+      if (!telemetryByParticipant.has(point.participant)) {
+        telemetryByParticipant.set(point.participant, []);
+      }
+      telemetryByParticipant.get(point.participant).push(point);
+    });
+    const identities = [...telemetryByParticipant.keys()].sort((a, b) => a.localeCompare(b));
+    identities.forEach((identity, index) => {
+      const color = participantPalette[index]
+        || `hsl(${Math.round((index * 137.508) % 360)} 78% 62%)`;
+      participantColors.set(identity, color);
+    });
+    visibleParticipants = new Set(identities);
+    renderParticipantFilters();
+    renderCurrentTelemetry(Number(document.getElementById('player').currentTime || 0) * 1000);
+    updateSpeedChart(Number.isFinite(document.getElementById('player').currentTime)
+      ? document.getElementById('player').currentTime * 1000 : null);
+    initMapTrack();
+    updateMapPositions(Number(document.getElementById('player').currentTime || 0) * 1000);
+    buildTimelineTicks();
+
     if (!telemetryData.length) {
-      speedSyncChart.data.labels = [];
-      speedSyncChart.data.datasets[0].data = [];
-      speedSyncChart.update('none');
-      initMapTrack([]);
-      updateMapStatus('Aucune telemetrie trouvee');
+      updateMapStatus('Aucune télémétrie trouvée pour cet enregistrement.');
       return;
     }
 
-    speedSyncChart.data.labels = telemetryData.map((d) => (d.video_ms / 1000).toFixed(1));
-    speedSyncChart.data.datasets[0].data = telemetryData.map((d) => Number.isFinite(d.speed) ? d.speed : null);
-    speedSyncChart.update('none');
-
-    initMapTrack(telemetryData);
-    buildTimelineTicks();
     if (telemetryData.some((d) => d.binary_packet && !d.binary_decoded)) {
-      updateMapStatus('Certains paquets binaires n’ont pas pu être décodés.');
+      showAppError('Certains paquets binaires de télémétrie n’ont pas pu être décodés.', 'Télémétrie');
     }
   } catch (e) {
     if (sequence !== loadSequence) return;
+    document.getElementById('participant-filters').textContent =
+      'Impossible de charger les utilisateurs de cet enregistrement.';
     updateMapStatus('Erreur de chargement de la télémétrie.');
     showAppError(e, 'Chargement de la télémétrie');
   }
