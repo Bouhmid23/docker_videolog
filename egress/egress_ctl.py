@@ -55,7 +55,7 @@ def status_label(status_code: int) -> str:
         return str(status_code)
 
 
-async def start_recording(room_name: str, layout: str = "speaker") -> str:
+async def start_recording(room_name: str, layout: str = "grid") -> str:
     lk = api.LiveKitAPI(LIVEKIT_URL, API_KEY, API_SECRET)
 
     ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
@@ -172,7 +172,7 @@ async def get_status(egress_id: str):
         await lk.aclose()
 
 
-async def watch_recording(room_name: str, layout: str = "speaker"):
+async def watch_recording(room_name: str, layout: str = "grid"):
     egress_id = await start_recording(room_name, layout)
     log.info("Enregistrement en cours... Ctrl-C pour arreter.")
     stop_event = asyncio.Event()
@@ -210,7 +210,7 @@ if __name__ == "__main__":
         usage()
     cmd  = sys.argv[1]
     args = sys.argv[2:]
-    layout = "speaker"
+    layout = "grid"
     if "--layout" in args:
         idx    = args.index("--layout")
         layout = args[idx + 1]

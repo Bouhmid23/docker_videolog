@@ -582,7 +582,7 @@ async def get_recording(egress_id: str):
 
 
 @app.post("/recordings/start")
-async def start_recording(room_name: str, layout: str = "speaker"):
+async def start_recording(room_name: str, layout: str = "grid"):
     from livekit import api as lkapi
     from livekit.protocol import egress as proto_egress
     ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")

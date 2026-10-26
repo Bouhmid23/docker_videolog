@@ -110,7 +110,7 @@ async def _auto_start_recording(room_name: str):
     try:
         req = proto_egress.RoomCompositeEgressRequest(
             room_name=room_name,
-            layout="speaker",
+            layout="grid",
             audio_only=False,
             video_only=False,
             file=proto_egress.EncodedFileOutput(
