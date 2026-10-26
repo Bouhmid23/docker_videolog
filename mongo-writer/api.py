@@ -2,9 +2,11 @@
 Dashboard API — Videolog POC
 FastAPI avec Server-Sent Events (SSE) pour le dashboard temps réel.
 """
-import asyncio, json, os, time
+import asyncio, json, logging, os, time
 from datetime import datetime, UTC, timedelta
 from typing import AsyncGenerator, Any
+from urllib.error import URLError
+from urllib.request import urlopen
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
@@ -31,6 +33,7 @@ sess   = mongo.videolog.sessions
 alerts = mongo.videolog.alerts
 rooms  = mongo.videolog.room_state
 r: aioredis.Redis = None
+log = logging.getLogger(__name__)
 
 
 def _minio_client(public: bool = False):
@@ -107,6 +110,18 @@ async def egress_status():
 @app.get("/health")
 async def health():
     return {"status": "ok", "ts": time.time()}
+
+
+@app.get("/minio/status")
+async def minio_status():
+    health_url = f"{MINIO_EP.rstrip('/')}/minio/health/live"
+    try:
+        response = await asyncio.to_thread(urlopen, health_url, timeout=3)
+        response.close()
+    except (URLError, TimeoutError, OSError) as error:
+        log.warning("MinIO health check failed: %s", error)
+        return {"status": "unavailable", "detail": str(error)}
+    return {"status": "ok"}
 
 
 # ── Stats ──────────────────────────────────────────────────────────────────────

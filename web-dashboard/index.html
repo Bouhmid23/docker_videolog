@@ -196,7 +196,7 @@
   <div class="pa">→</div>
   <div class="pn"><div class="pi">DB</div><div class="pn-name">MongoDB</div><div class="pn-st ok" id="ps-mongo">…</div></div>
   <div class="pa">→</div>
-  <div class="pn"><div class="pi">S3</div><div class="pn-name">MinIO</div><div class="pn-st ok" id="ps-minio">…</div></div>
+  <div class="pn"><div class="pi">S3</div><div class="pn-name">MinIO</div><div class="pn-st warn" id="ps-minio">Vérification…</div></div>
 </div>
 
 <!-- Charts -->
@@ -520,9 +520,29 @@ async function pollStats() {
     setPipe('ps-writer', d.stream_pending > 5000 ? 'Retard' : 'En ligne');
     setPipe('ps-lk', 'État API');
     setPipe('ps-agent', d.last_event_ts ? 'Données reçues' : 'En attente');
-    setPipe('ps-minio', 'État inconnu');
     setPipe('ps-sim', d.total_events > 0 ? 'Actif' : 'En attente');
   } catch (error) { showAppError(error, 'Chargement des statistiques'); }
+}
+
+async function pollMinioStatus() {
+  const status = document.getElementById('ps-minio');
+  try {
+    const result = await apiJson(`${API}/minio/status`);
+    if (result?.status === 'ok') {
+      status.title = '';
+      setPipe('ps-minio', 'En ligne');
+    } else if (result?.status === 'unavailable') {
+      status.title = result.detail || 'Le service MinIO ne répond pas.';
+      setPipe('ps-minio', 'Indisponible');
+      console.error('MinIO indisponible:', status.title);
+    } else {
+      throw new Error('Réponse invalide du contrôle MinIO');
+    }
+  } catch (error) {
+    status.title = error.message;
+    setPipe('ps-minio', 'Indisponible');
+    console.error('Vérification MinIO échouée:', error);
+  }
 }
 
 async function pollSeries() {
@@ -752,7 +772,7 @@ function setPipe(id, txt) {
   const el=document.getElementById(id);
   if(el){
     el.textContent=txt;
-    const uncertain = /inconnu|attente/i.test(txt);
+    const uncertain = /inconnu|attente|indisponible|hors ligne|retard|vérification/i.test(txt);
     el.className = `pn-st ${uncertain ? 'warn' : 'ok'}`;
   }
 }
@@ -760,6 +780,7 @@ function setPipe(id, txt) {
 function refreshDashboard() {
   clearAppError();
   pollStats(); pollSeries(); pollEvents(); pollAlerts(); fetchRoomState(); fetchRecFiles(); loadRooms();
+  pollMinioStatus();
   if (typeof EventSource !== 'undefined' && (!eventSource || eventSource.readyState === EventSource.CLOSED)) connectSSE();
 }
 
@@ -818,6 +839,7 @@ async function setCurrentRoom(roomName) {
   await loadRooms();
   connectSSE();
   pollStats(); pollSeries(); pollEvents(); pollAlerts(); fetchRoomState(); fetchRecFiles();
+  pollMinioStatus();
   addLog(`Room active: ${currentRoom}`, '#58a6ff');
 }
 
@@ -853,8 +875,10 @@ loadRooms().then(() => {
   connectSSE();
   addLog(`Dashboard démarré · ${currentRoom}`, '#3fb950');
   pollStats(); pollSeries(); pollEvents(); pollAlerts(); fetchRoomState(); fetchRecFiles();
+  pollMinioStatus();
 });
 setInterval(pollStats, 5000);
+setInterval(pollMinioStatus, 15000);
 setInterval(pollSeries, 2000);
 setInterval(pollEvents, 2000);
 setInterval(pollAlerts, 10000);
