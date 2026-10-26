@@ -543,9 +543,16 @@ async function pollStats() {
   try {
     const d = await apiJson(`${API}/stats?room=${encodeURIComponent(currentRoom)}`);
     if (!d || typeof d !== 'object') throw new Error('Statistiques invalides');
-    setPipe('ps-redis',  (d.stream_pending||0)+' msgs');
+    const writerStatusKnown = d.writer_group_found === true
+      && Number.isFinite(d.stream_pending)
+      && Number.isFinite(d.stream_lag);
+    setPipe('ps-redis', writerStatusKnown
+      ? `${d.stream_lag} en attente`
+      : 'État inconnu');
     setPipe('ps-mongo',  (d.total_events||0)+' docs');
-    setPipe('ps-writer', d.stream_pending > 5000 ? 'Retard' : 'En ligne');
+    setPipe('ps-writer', !writerStatusKnown
+      ? 'État inconnu'
+      : d.stream_pending + d.stream_lag > 5000 ? 'Retard' : 'En ligne');
     setPipe('ps-lk', 'État API');
     setPipe('ps-agent', d.last_event_ts ? 'Données reçues' : 'En attente');
     setPipe('ps-sim', d.total_events > 0 ? 'Actif' : 'En attente');

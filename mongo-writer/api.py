@@ -152,12 +152,33 @@ async def stats(room: str | None = None):
     query      = {"room_name": room} if room else {}
     total      = await col.count_documents(query)
     session    = await sess.find_one(query, sort=[("started_at", -1)])
-    stream_len = await r.xlen("telemetry:stream") if r else 0
+    stream_len = None
+    stream_pending = None
+    stream_lag = None
+    writer_group_found = False
+    if r:
+        stream_len = await r.xlen("telemetry:stream")
+        try:
+            groups = await r.xinfo_groups("telemetry:stream")
+            writer_group = next(
+                (group for group in groups
+                 if group.get("name") == "mongo-writers"),
+                None,
+            )
+            if writer_group:
+                writer_group_found = True
+                stream_pending = writer_group.get("pending", 0)
+                stream_lag = writer_group.get("lag")
+        except RedisError as error:
+            log.warning("Unable to inspect telemetry writer group: %s", error)
     alert_cnt  = await alerts.count_documents(query)
     last       = await col.find_one(query, sort=[("ts", -1)])
     return {
         "total_events":   total,
-        "stream_pending": stream_len,
+        "stream_length":  stream_len,
+        "stream_pending": stream_pending,
+        "stream_lag":     stream_lag,
+        "writer_group_found": writer_group_found,
         "alert_count":    alert_cnt,
         "last_event_ts":  last["ts"] if last else None,
         "session": {
