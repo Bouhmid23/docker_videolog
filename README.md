@@ -203,6 +203,11 @@ videolog-poc/
 ### Depuis le dashboard (recommandé)
 Ouvrir http://localhost:3000 → panneau **Enregistrement Egress** → bouton **Start**.
 
+### Démarrage automatique
+L'enregistrement automatique démarre lorsqu'au moins deux participants connectés ont publié une télémétrie avec le rôle `coach` ou `trainee`. Toutes les combinaisons sont acceptées (coach + trainee, deux coachs ou deux trainees). Les rôles `observer` et les identités de service (`telemetry-agent`, `egress`, `livekit-egress`) ne comptent pas dans ce seuil. Les identités de service sont également exclues de l'expulsion pour inactivité de télémétrie.
+
+Le seuil est configurable avec `RECORD_MIN_PARTICIPANTS` (défaut et minimum : `2`, valeur supérieure autorisée). Si le nombre de coachs/trainees passe sous le seuil, l'arrêt attend `STOP_GRACE_DELAY` secondes (défaut : `10`) ; si le seuil est réatteint pendant ce délai, l'arrêt est annulé. Les rôles sont déterminés d'après les paquets de télémétrie reçus, l'automatisation attend donc qu'un coach/trainee ait envoyé un paquet pour le compter.
+
 ### Depuis le CLI (terminal)
 ```bash
 # Lancer un enregistrement

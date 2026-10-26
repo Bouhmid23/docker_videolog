@@ -2,10 +2,11 @@
 Egress Webhook — Videolog Sport POC
 
 Regles d'enregistrement automatique:
-  - START : des que RECORD_MIN_PARTICIPANTS (defaut: 2) sont dans la room
-  - STOP  : quand il reste < RECORD_MIN_PARTICIPANTS (avec delai de grace)
+  - START : des que RECORD_MIN_PARTICIPANTS coachs/trainees (defaut: 2)
+  - STOP  : quand il reste moins de coachs/trainees (avec delai de grace)
 
-Agents internes exclus du comptage: telemetry-agent, egress
+Les observers et agents internes sont exclus du seuil.
+Les agents internes sont aussi exclus de l'expulsion pour inactivite.
 """
 import asyncio, json, logging, os, time
 from datetime import datetime, UTC
@@ -33,11 +34,12 @@ REC_BUCKET      = "recordings"
 MINIO_PUBLIC_URL = os.environ["MINIO_PUBLIC_URL"]
 
 # Nombre minimum de participants pour declencher l'enregistrement
-RECORD_MIN_PARTICIPANTS = int(os.environ.get("RECORD_MIN_PARTICIPANTS", "2"))
+RECORD_MIN_PARTICIPANTS = max(2, int(os.environ.get("RECORD_MIN_PARTICIPANTS", "2")))
 # Delai de grace avant arret (secondes)
 STOP_GRACE_DELAY        = int(os.environ.get("STOP_GRACE_DELAY", "10"))
-# Participants internes a exclure du comptage
+# Identites de service exclues du seuil et de l'expulsion pour inactivite.
 INTERNAL_IDENTITIES     = {"telemetry-agent", "egress", "livekit-egress"}
+RECORDING_ROLES          = {"coach", "trainee"}
 TELEMETRY_IDLE_TIMEOUT  = 60
 PARTICIPANT_SWEEP_INTERVAL = 15
 
@@ -48,7 +50,7 @@ telemetry_col = mongo.videolog.telemetry
 rooms_col = mongo.videolog.room_state
 r: aioredis.Redis = None
 
-# { room_name -> {"participants": set(), "egress_ids": set(), "stop_task": Task} }
+# Per-room live participant roles, active Egress IDs, and pending tasks.
 _state: dict = {}
 _participant_sweeper: asyncio.Task | None = None
 
@@ -112,6 +114,8 @@ async def _sweep_inactive_participants():
             rooms = await lk.room.list_rooms(proto_room.ListRoomsRequest())
             now = time.time()
             live_participants_by_room = {}
+            live_roles_by_room = {}
+            joined_at_by_room = {}
             for room in rooms.rooms:
                 participants = await lk.room.list_participants(
                     proto_room.ListParticipantsRequest(room=room.name))
@@ -119,10 +123,19 @@ async def _sweep_inactive_participants():
                     participant.identity for participant in participants.participants
                 }
                 live_participants_by_room[room.name] = live_participants
+                live_roles = {}
+                joined_at_values = {}
+                state = _room(room.name)
                 for participant in participants.participants:
                     identity = participant.identity
-                    if identity.lower() in INTERNAL_IDENTITIES:
+                    if _is_internal(identity):
                         continue
+
+                    joined_at = _participant_joined_at(participant)
+                    if joined_at is None:
+                        joined_at = state["joined_at"].get(identity)
+                    if joined_at is not None:
+                        joined_at_values[identity] = joined_at
 
                     latest = await telemetry_col.find_one(
                         {"room_name": room.name, "participant": identity},
@@ -131,16 +144,24 @@ async def _sweep_inactive_participants():
                         sort=[("inserted_at", -1), ("server_ts", -1)],
                     )
                     if latest:
-                        role = (latest.get("telemetry") or {}).get("role", "trainee")
-                        if role != "trainee":
-                            continue
+                        role = str(
+                            (latest.get("telemetry") or {}).get("role", "trainee")
+                        ).strip().casefold()
                         telemetry_activity = _telemetry_activity_at(latest)
+                        if (role in RECORDING_ROLES or role == "observer") and (
+                                joined_at is None or telemetry_activity is None
+                                or telemetry_activity >= joined_at):
+                            live_roles[identity] = role
                     else:
+                        role = None
                         telemetry_activity = None
+
+                    if role != "trainee":
+                        continue
 
                     activity_times = [
                         activity for activity in (
-                            telemetry_activity, _participant_joined_at(participant))
+                            telemetry_activity, joined_at)
                         if activity is not None
                     ]
                     if (not activity_times
@@ -157,9 +178,12 @@ async def _sweep_inactive_participants():
                             room=room.name, identity=identity))
                     live_participants.discard(identity)
 
+                live_roles_by_room[room.name] = live_roles
+                joined_at_by_room[room.name] = joined_at_values
+
             stored_rooms = await rooms_col.find(
                 {"finished": {"$ne": True}},
-                {"_id": 0, "room_name": 1, "participants": 1},
+                {"_id": 0, "room_name": 1, "participants": 1, "count": 1},
             ).to_list(None)
             room_names = set(live_participants_by_room)
             room_names.update(
@@ -173,28 +197,45 @@ async def _sweep_inactive_participants():
                 live_participants = live_participants_by_room.get(room_name, set())
                 stored_participants = set(
                     stored_by_name.get(room_name, {}).get("participants") or [])
-                if stored_participants == live_participants:
-                    continue
+                state = _room(room_name)
+                previous_count = _count(room_name)
+                state["participants"] = set(live_participants)
+                previous_roles = state["roles"]
+                current_roles = live_roles_by_room.get(room_name, {})
+                state["roles"] = {
+                    identity: current_roles.get(identity, previous_roles.get(identity))
+                    for identity in live_participants
+                    if not _is_internal(identity)
+                    and current_roles.get(identity, previous_roles.get(identity))
+                    in RECORDING_ROLES | {"observer"}
+                }
+                state["joined_at"] = {
+                    identity: joined_at for identity, joined_at
+                    in {**state["joined_at"],
+                        **joined_at_by_room.get(room_name, {})}.items()
+                    if identity in live_participants
+                }
+                current_count = _count(room_name)
 
-                await rooms_col.update_one(
-                    {"room_name": room_name},
-                    {"$set": {
-                        "room_name": room_name,
-                        "participants": sorted(live_participants),
-                        "count": sum(
-                            identity not in INTERNAL_IDENTITIES
-                            for identity in live_participants),
-                        "updated_at": datetime.now(UTC),
-                    }},
-                    upsert=True,
-                )
-                if room_name in _state:
-                    previous_count = _count(room_name)
-                    _state[room_name]["participants"] = set(live_participants)
-                    current_count = _count(room_name)
-                    if (previous_count >= RECORD_MIN_PARTICIPANTS
-                            and current_count < RECORD_MIN_PARTICIPANTS):
-                        await _schedule_stop(room_name)
+                if (stored_participants != live_participants
+                        or stored_by_name.get(room_name, {}).get("count") != current_count):
+                    await rooms_col.update_one(
+                        {"room_name": room_name},
+                        {"$set": {
+                            "room_name": room_name,
+                            "participants": sorted(live_participants),
+                            "count": current_count,
+                            "updated_at": datetime.now(UTC),
+                        }},
+                        upsert=True,
+                    )
+
+                if current_count >= RECORD_MIN_PARTICIPANTS:
+                    await _cancel_stop(room_name)
+                    asyncio.create_task(_auto_start_recording(room_name))
+                elif (previous_count >= RECORD_MIN_PARTICIPANTS
+                      and state["egress_ids"]):
+                    await _schedule_stop(room_name)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -209,14 +250,59 @@ async def _sweep_inactive_participants():
 
 def _room(name: str) -> dict:
     if name not in _state:
-        _state[name] = {"participants": set(), "egress_ids": set(), "stop_task": None}
+        _state[name] = {
+            "participants": set(),
+            "egress_ids": set(),
+            "roles": {},
+            "joined_at": {},
+            "starting": False,
+            "stop_task": None,
+        }
     return _state[name]
 
 
+def _is_internal(identity: str) -> bool:
+    return str(identity or "").strip().casefold() in INTERNAL_IDENTITIES
+
+
 def _count(room_name: str) -> int:
-    """Nombre de participants reels (hors agents internes)."""
+    """Count connected coach/trainee users, excluding service identities."""
     st = _state.get(room_name)
-    return sum(1 for p in st["participants"] if p not in INTERNAL_IDENTITIES) if st else 0
+    if not st:
+        return 0
+    return sum(
+        identity in st["participants"] and not _is_internal(identity)
+        and st["roles"].get(identity) in RECORDING_ROLES
+        for identity in st["roles"]
+    )
+
+
+async def _refresh_participant_role(room_name: str, identity: str):
+    if _is_internal(identity):
+        return
+
+    state = _room(room_name)
+    joined_at = state["joined_at"].get(identity)
+    latest = await telemetry_col.find_one(
+        {"room_name": room_name, "participant": identity},
+        {"_id": 0, "inserted_at": 1, "server_ts": 1, "ts": 1,
+         "telemetry.role": 1},
+        sort=[("inserted_at", -1), ("server_ts", -1)],
+    )
+    if not latest:
+        state["roles"].pop(identity, None)
+        return
+
+    activity = _telemetry_activity_at(latest)
+    if joined_at is not None and (activity is None or activity < joined_at):
+        state["roles"].pop(identity, None)
+        return
+
+    role = str((latest.get("telemetry") or {}).get("role") or "").strip().casefold()
+    if role in RECORDING_ROLES or role == "observer":
+        state["roles"][identity] = role
+    else:
+        state["roles"].pop(identity, None)
 
 
 def _status(code) -> str:
@@ -250,13 +336,17 @@ async def _auto_start_recording(room_name: str):
     Ne lance pas si un egress est deja actif.
     """
     st = _room(room_name)
-    if st["egress_ids"]:
+    if _count(room_name) < RECORD_MIN_PARTICIPANTS:
+        return
+    if st["egress_ids"] or st["starting"]:
         log.info(f"ℹ️  Enregistrement deja actif pour '{room_name}'")
         return
 
-    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    lk = lkapi.LiveKitAPI(LIVEKIT_URL, API_KEY, API_SECRET)
+    st["starting"] = True
+    lk = None
     try:
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        lk = lkapi.LiveKitAPI(LIVEKIT_URL, API_KEY, API_SECRET)
         req = proto_egress.RoomCompositeEgressRequest(
             room_name=room_name,
             layout="grid",
@@ -282,8 +372,13 @@ async def _auto_start_recording(room_name: str):
         )
         info = await lk.egress.start_room_composite_egress(req)
         st["egress_ids"].add(info.egress_id)
-        log.info(f"🔴 Enregistrement AUTO demarre | {info.egress_id} "
-                 f"room={room_name} ({_count(room_name)} participants)")
+        if _count(room_name) < RECORD_MIN_PARTICIPANTS:
+            await _schedule_stop(room_name)
+        log.info(
+            "🔴 Enregistrement AUTO demarre | %s room=%s "
+            "(%s coach/trainee users)",
+            info.egress_id, room_name, _count(room_name),
+        )
 
         # Persister dans MongoDB
         await col.update_one(
@@ -308,7 +403,9 @@ async def _auto_start_recording(room_name: str):
     except Exception as e:
         log.error(f"❌ Auto-start echoue pour '{room_name}': {e}")
     finally:
-        await lk.aclose()
+        st["starting"] = False
+        if lk:
+            await lk.aclose()
 
 
 async def _stop_egress(room_name: str, egress_id: str, reason: str = "manual"):
@@ -404,12 +501,21 @@ async def handle_joined(event: dict):
     identity  = p.get("identity", "unknown")
     room_name = room.get("name", "")
 
-    _room(room_name)["participants"].add(identity)
+    state = _room(room_name)
+    state["participants"].add(identity)
+    state["joined_at"][identity] = time.time()
+    state["roles"].pop(identity, None)
+    if not _is_internal(identity):
+        await _refresh_participant_role(room_name, identity)
     count = _count(room_name)
-    log.info(f"👤 Rejoint | {identity} | {count} participant(s) reel(s) dans '{room_name}'")
+    log.info(
+        "👤 Rejoint | %s | %s coach/trainee user(s) in '%s'",
+        identity, count, room_name,
+    )
 
-    # Annuler un stop en attente si quelqu'un revient
-    await _cancel_stop(room_name)
+    # Seuls les coachs/trainees peuvent maintenir ou declencher l'enregistrement.
+    if count >= RECORD_MIN_PARTICIPANTS:
+        await _cancel_stop(room_name)
     await _persist_room(room_name)
 
     await r.publish("room:events", json.dumps({
@@ -430,9 +536,16 @@ async def handle_left(event: dict):
     identity  = p.get("identity", "unknown")
     room_name = room.get("name", "")
 
-    _room(room_name)["participants"].discard(identity)
+    state = _room(room_name)
+    previous_count = _count(room_name)
+    state["participants"].discard(identity)
+    state["roles"].pop(identity, None)
+    state["joined_at"].pop(identity, None)
     count = _count(room_name)
-    log.info(f"👤 Parti | {identity} | {count} participant(s) reel(s) dans '{room_name}'")
+    log.info(
+        "👤 Parti | %s | %s coach/trainee user(s) in '%s'",
+        identity, count, room_name,
+    )
 
     await _persist_room(room_name)
     await r.publish("room:events", json.dumps({
@@ -441,7 +554,8 @@ async def handle_left(event: dict):
     }))
 
     st = _room(room_name)
-    if count < RECORD_MIN_PARTICIPANTS and st["egress_ids"]:
+    if (previous_count >= RECORD_MIN_PARTICIPANTS
+            and count < RECORD_MIN_PARTICIPANTS and st["egress_ids"]):
         log.info(f"📉 Moins de {RECORD_MIN_PARTICIPANTS} participants "
                  f"→ arret dans {STOP_GRACE_DELAY}s")
         await _schedule_stop(room_name)
@@ -525,7 +639,10 @@ async def handle_egress_ended(event: dict):
 async def handle_room_started(event: dict):
     name = event.get("room", {}).get("name", "")
     log.info(f"🏠 Room ouverte: {name}")
-    _room(name)["participants"].clear()
+    state = _room(name)
+    state["participants"].clear()
+    state["roles"].clear()
+    state["joined_at"].clear()
     await _persist_room(name)
 
 
@@ -538,6 +655,8 @@ async def handle_room_finished(event: dict):
         await _stop_egress(name, eid, reason="room_finished")
     st["participants"].clear()
     st["egress_ids"].clear()
+    st["roles"].clear()
+    st["joined_at"].clear()
     await _persist_room(name, finished=True)
 
 
