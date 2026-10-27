@@ -127,18 +127,7 @@ async def _get_authorized_room(
     if room.get("finished") and not allow_finished:
         raise HTTPException(status_code=409, detail="Session has already finished.")
 
-    uid = user["uid"]
-    operators = room.get("recording_operator_uids", [])
-    is_operator = (
-        user.get("recording_admin") is True
-        or uid == room.get("owner_uid")
-        or (isinstance(operators, list) and uid in operators)
-    )
-    if not is_operator:
-        raise HTTPException(
-            status_code=403,
-            detail="You are not allowed to control recordings for this session.",
-        )
+    # POC behavior: every authenticated Firebase user may control Egress.
     return room
 
 
