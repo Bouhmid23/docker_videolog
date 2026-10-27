@@ -507,6 +507,72 @@ async def get_alerts(room: str = "poc-room", limit: int = 50, role: str | None =
 
 # ─── Rooms / Sessions ────────────────────────────────────────────────────────
 
+@app.get("/mobile/rooms")
+async def list_mobile_rooms(
+    limit: int = Query(default=50, ge=1, le=100),
+    user: dict = Depends(firebase_user),
+):
+    uid = user["uid"]
+    is_admin = user.get("recording_admin") is True
+    permitted_rooms = user.get("livekit_room_names", [])
+    if not isinstance(permitted_rooms, list):
+        permitted_rooms = []
+    permitted_rooms = [
+        name for name in permitted_rooms
+        if isinstance(name, str) and name and len(name) <= 128
+    ][:100]
+
+    access_conditions = [
+        {"owner_uid": uid},
+        {"participant_uids": uid},
+        {"recording_operator_uids": uid},
+    ]
+    if permitted_rooms:
+        access_conditions.append({"room_name": {"$in": permitted_rooms}})
+
+    query: dict[str, Any] = {"finished": {"$ne": True}}
+    if not is_admin:
+        query["$or"] = access_conditions
+
+    projection = {
+        "_id": 0,
+        "room_name": 1,
+        "count": 1,
+        "recording": 1,
+        "created_at": 1,
+        "updated_at": 1,
+        "mobile_recording.status": 1,
+        "owner_uid": 1,
+        "recording_operator_uids": 1,
+    }
+    room_docs = await rooms.find(query, projection).sort(
+        "updated_at", -1
+    ).limit(limit).to_list(length=limit)
+
+    result = []
+    for room in room_docs:
+        for field in ("created_at", "updated_at"):
+            if isinstance(room.get(field), datetime):
+                room[field] = room[field].isoformat()
+        operators = room.get("recording_operator_uids", [])
+        result.append({
+            "room_name": room["room_name"],
+            "count": room.get("count", 0),
+            "recording": room.get("recording", False),
+            "recording_status": (room.get("mobile_recording") or {}).get(
+                "status", "not_started"
+            ),
+            "created_at": room.get("created_at"),
+            "updated_at": room.get("updated_at"),
+            "can_control_recording": (
+                is_admin
+                or uid == room.get("owner_uid")
+                or (isinstance(operators, list) and uid in operators)
+            ),
+        })
+    return {"rooms": result, "count": len(result)}
+
+
 @app.get("/rooms")
 async def list_rooms(limit: int = 50):
     room_names = set()

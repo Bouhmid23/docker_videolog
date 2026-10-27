@@ -17,7 +17,7 @@ Le dashboard utilise HTTP Basic. L'API mobile utilise un Firebase ID token en `A
 
 ## Configuration serveur Firebase
 
-1. Créez ou sélectionnez le projet Firebase utilisé par l'application et activez le fournisseur de connexion voulu.
+1. Créez ou sélectionnez le projet Firebase utilisé par l'application et activez **Email/Password** dans Authentication > Sign-in method.
 2. Créez un compte de service Firebase Admin pour le backend. Déposez son JSON sur le serveur dans `secrets/firebase-service-account.json` (ou configurez `FIREBASE_SECRETS_DIR` vers un dossier protégé). Ce dossier est monté en lecture seule dans `dashboard-api` et ignoré par Git. Ne distribuez jamais ce fichier avec l'application mobile.
 3. Configurez `FIREBASE_PROJECT_ID` et `FIREBASE_SECRETS_DIR` dans `.env`.
 4. Ajoutez un enregistrement DNS `A` pour `api.<domaine>` vers le VPS, puis redémarrez Caddy et l'API.
@@ -40,13 +40,44 @@ Pour les sessions existantes, un administrateur peut affecter les UID via un pro
 ## Parcours de connexion
 
 1. Le backend ou un opérateur autorisé prépare la session et ses droits d'accès dans MongoDB.
-2. L'utilisateur se connecte avec Firebase dans l'application et récupère son Firebase ID token.
+2. L'utilisateur se connecte avec son adresse email et son mot de passe via Firebase Authentication dans l'application. Firebase renvoie un ID token ; le mot de passe n'est jamais envoyé à l'API Videolog.
 3. Chaque participant demande son token LiveKit à `/token` avec le nom de room autorisé.
 4. Le backend signe le token avec ses clés LiveKit. Ces clés secrètes ne sont jamais embarquées dans l'application.
 5. Le client se connecte au SDK LiveKit avec les champs `url` et `token` reçus.
 6. LiveKit crée la room à la première connexion autorisée, car `auto_create` est activé. Les autres participants rejoignent en demandant un token avec exactement le même nom de room.
 
 Le endpoint `POST /rooms` existant reste une route d'administration. Il ne doit pas être utilisé comme endpoint public d'authentification ou de création arbitraire de sessions.
+
+### Lister les rooms disponibles sur mobile
+
+L'application peut appeler `GET /mobile/rooms` avec le Firebase ID token en Bearer. La route renvoie uniquement les sessions non terminées accessibles à l'utilisateur authentifié (propriétaire, participant, opérateur, administrateur ou room autorisée par claim). La réponse est limitée aux informations nécessaires à l'affichage et indique `can_control_recording` pour distinguer l'accès à la room du droit de contrôler Egress. Le paramètre `limit` vaut 50 par défaut et accepte de 1 à 100.
+
+Voir le [workflow mobile complet](./MOBILE_RECORDING_WORKFLOW.md) pour l'exemple Flutter et le détail de la réponse.
+
+### Connexion Flutter avec email et mot de passe
+
+Configurez Firebase dans l'application Flutter avec FlutterFire, puis ajoutez `firebase_auth`. La connexion se fait directement auprès de Firebase :
+
+```dart
+import 'package:firebase_auth/firebase_auth.dart';
+
+final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+  email: email.trim(),
+  password: password,
+);
+
+final user = credential.user;
+if (user == null) {
+  throw StateError('Firebase n\'a pas renvoyé d\'utilisateur connecté');
+}
+
+final idToken = await user.getIdToken();
+if (idToken == null) {
+  throw StateError('Impossible de récupérer le Firebase ID token');
+}
+```
+
+Utilisez ensuite cet ID token dans l'en-tête `Authorization` de type Bearer pour les appels à `api.videolog.app`. N'envoyez jamais l'email ou le mot de passe à l'API Videolog, ne stockez pas le mot de passe dans l'application et ne journalisez pas l'ID token. Firebase gère la session ; après la connexion, récupérez l'ID token courant avec `FirebaseAuth.instance.currentUser?.getIdToken()` pour les requêtes API.
 
 ## Récupérer un token
 
