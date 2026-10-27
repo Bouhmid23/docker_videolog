@@ -52,7 +52,7 @@ Le endpoint `POST /rooms` existant reste une route d'administration. Il ne doit 
 
 ### Lister les rooms disponibles sur mobile
 
-L'application peut appeler `GET /mobile/rooms` avec le Firebase ID token en Bearer. Pour ce POC, tout utilisateur authentifié peut voir toutes les rooms non terminées. La réponse est limitée aux informations nécessaires à l'affichage et indique `can_control_recording` pour distinguer la visibilité de la room du droit de contrôler Egress. Le paramètre `limit` vaut 50 par défaut et accepte de 1 à 100.
+L'application peut appeler `GET /mobile/rooms` avec le Firebase ID token en Bearer. Pour ce POC, tout utilisateur authentifié peut voir toutes les rooms non terminées et le champ `can_control_recording` vaut toujours `true` pour l'interface. Les endpoints qui démarrent ou arrêtent réellement Egress vérifient encore les autorisations dans MongoDB. En production, rétablir pour ce champ la règle fondée sur `recording_admin`, `owner_uid` et `recording_operator_uids`. Le paramètre `limit` vaut 50 par défaut et accepte de 1 à 100.
 
 Voir le [workflow mobile complet](./MOBILE_RECORDING_WORKFLOW.md) pour l'exemple Flutter et le détail de la réponse.
 

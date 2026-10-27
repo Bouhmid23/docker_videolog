@@ -512,9 +512,6 @@ async def list_mobile_rooms(
     limit: int = Query(default=50, ge=1, le=100),
     user: dict = Depends(firebase_user),
 ):
-    uid = user["uid"]
-    is_admin = user.get("recording_admin") is True
-
     # POC behavior: any authenticated mobile user can discover every active room.
     query: dict[str, Any] = {"finished": {"$ne": True}}
 
@@ -526,8 +523,6 @@ async def list_mobile_rooms(
         "created_at": 1,
         "updated_at": 1,
         "mobile_recording.status": 1,
-        "owner_uid": 1,
-        "recording_operator_uids": 1,
     }
     room_docs = await rooms.find(query, projection).sort(
         "updated_at", -1
@@ -538,7 +533,6 @@ async def list_mobile_rooms(
         for field in ("created_at", "updated_at"):
             if isinstance(room.get(field), datetime):
                 room[field] = room[field].isoformat()
-        operators = room.get("recording_operator_uids", [])
         result.append({
             "room_name": room["room_name"],
             "count": room.get("count", 0),
@@ -548,11 +542,8 @@ async def list_mobile_rooms(
             ),
             "created_at": room.get("created_at"),
             "updated_at": room.get("updated_at"),
-            "can_control_recording": (
-                is_admin
-                or uid == room.get("owner_uid")
-                or (isinstance(operators, list) and uid in operators)
-            ),
+            # POC UI behavior: advertise recording controls to every authenticated user.
+            "can_control_recording": True,
         })
     return {"rooms": result, "count": len(result)}
 
