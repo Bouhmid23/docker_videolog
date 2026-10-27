@@ -514,25 +514,9 @@ async def list_mobile_rooms(
 ):
     uid = user["uid"]
     is_admin = user.get("recording_admin") is True
-    permitted_rooms = user.get("livekit_room_names", [])
-    if not isinstance(permitted_rooms, list):
-        permitted_rooms = []
-    permitted_rooms = [
-        name for name in permitted_rooms
-        if isinstance(name, str) and name and len(name) <= 128
-    ][:100]
 
-    access_conditions = [
-        {"owner_uid": uid},
-        {"participant_uids": uid},
-        {"recording_operator_uids": uid},
-    ]
-    if permitted_rooms:
-        access_conditions.append({"room_name": {"$in": permitted_rooms}})
-
+    # POC behavior: any authenticated mobile user can discover every active room.
     query: dict[str, Any] = {"finished": {"$ne": True}}
-    if not is_admin:
-        query["$or"] = access_conditions
 
     projection = {
         "_id": 0,

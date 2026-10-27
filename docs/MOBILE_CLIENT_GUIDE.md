@@ -50,7 +50,7 @@ Le endpoint `POST /rooms` existant reste une route d'administration. Il ne doit 
 
 ### Lister les rooms disponibles sur mobile
 
-L'application peut appeler `GET /mobile/rooms` avec le Firebase ID token en Bearer. La route renvoie uniquement les sessions non terminées accessibles à l'utilisateur authentifié (propriétaire, participant, opérateur, administrateur ou room autorisée par claim). La réponse est limitée aux informations nécessaires à l'affichage et indique `can_control_recording` pour distinguer l'accès à la room du droit de contrôler Egress. Le paramètre `limit` vaut 50 par défaut et accepte de 1 à 100.
+L'application peut appeler `GET /mobile/rooms` avec le Firebase ID token en Bearer. Pour ce POC, tout utilisateur authentifié peut voir toutes les rooms non terminées. La réponse est limitée aux informations nécessaires à l'affichage et indique `can_control_recording` pour distinguer la visibilité de la room du droit de contrôler Egress. Le paramètre `limit` vaut 50 par défaut et accepte de 1 à 100.
 
 Voir le [workflow mobile complet](./MOBILE_RECORDING_WORKFLOW.md) pour l'exemple Flutter et le détail de la réponse.
 
