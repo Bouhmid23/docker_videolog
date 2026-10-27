@@ -28,20 +28,22 @@ Le compte de service est utilisé uniquement côté backend pour vérifier les I
 
 ## Autorisation par session
 
-Les contrôles Egress exigent un Firebase ID token valide **et** une autorisation dans le document MongoDB `videolog.room_state` de la session :
+Pour ce POC, tout utilisateur Firebase authentifié peut lister les rooms non terminées et recevoir un token LiveKit pour rejoindre une room existante non terminée. Le token autorise actuellement la publication et la réception des pistes.
+
+Les contrôles Egress restent réservés aux utilisateurs autorisés dans le document MongoDB `videolog.room_state` de la session :
 
 - `owner_uid`: UID Firebase propriétaire ;
 - `recording_operator_uids`: tableau des UID autorisés à contrôler Egress ;
-- `participant_uids`: tableau des UID autorisés à recevoir un token LiveKit ;
+- `participant_uids`: UID participants conservés pour le contrôle métier ;
 - `recording_admin: true`: custom claim Firebase réservé aux administrateurs de confiance, avec accès à toutes les sessions.
 
-Pour les sessions existantes, un administrateur peut affecter les UID via un processus d'administration sûr. N'acceptez jamais ces UID depuis une requête mobile non autorisée. Le token LiveKit utilise l'UID Firebase vérifié comme identité, et expire après dix minutes.
+Pour les sessions existantes, un administrateur peut affecter les UID via un processus d'administration sûr. N'acceptez jamais ces UID depuis une requête mobile non autorisée. Le token LiveKit utilise l'UID Firebase vérifié comme identité et expire après dix minutes.
 
 ## Parcours de connexion
 
-1. Le backend ou un opérateur autorisé prépare la session et ses droits d'accès dans MongoDB.
+1. Le backend ou un opérateur autorisé prépare la session dans MongoDB.
 2. L'utilisateur se connecte avec son adresse email et son mot de passe via Firebase Authentication dans l'application. Firebase renvoie un ID token ; le mot de passe n'est jamais envoyé à l'API Videolog.
-3. Chaque participant demande son token LiveKit à `/token` avec le nom de room autorisé.
+3. Chaque utilisateur authentifié demande son token LiveKit à `/token` avec le nom d'une room existante et non terminée.
 4. Le backend signe le token avec ses clés LiveKit. Ces clés secrètes ne sont jamais embarquées dans l'application.
 5. Le client se connecte au SDK LiveKit avec les champs `url` et `token` reçus.
 6. LiveKit crée la room à la première connexion autorisée, car `auto_create` est activé. Les autres participants rejoignent en demandant un token avec exactement le même nom de room.
@@ -190,7 +192,7 @@ final room = Room();
 await room.connect(liveKitUrl, token);
 ```
 
-Tous les participants doivent utiliser le même `roomName`. Chaque UID Firebase donne une identité distincte dans la room et doit être autorisé dans `participant_uids` ou par un autre droit d'accès configuré côté serveur.
+Tous les participants doivent utiliser le même `roomName`. Chaque UID Firebase donne une identité distincte dans la room.
 
 Les droits du token sont actuellement identiques pour tous les utilisateurs : publication et réception sont autorisées. Le champ `role` du paquet de télémétrie (`coach`, `trainee`, `observer`) ne change pas les permissions LiveKit.
 
@@ -247,4 +249,4 @@ Pour la relecture, l'API calcule `video_ms` par rapport à l'heure de début du 
 4. Publier un paquet v2 sur `telemetry` et vérifier la réception côté telemetry-agent/dashboard.
 5. Tester les champs nuls et les coordonnées négatives ; vérifier que le décodage restitue les unités et signes attendus.
 
-Le test `GET /token` doit répondre `405` car la route accepte `POST` uniquement. Un ID token absent ou invalide doit recevoir `401`; un utilisateur non autorisé pour la room ou l'enregistrement doit recevoir `403`. En mode `automatic`, les routes mobiles de contrôle Egress doivent répondre `409`.
+Le test `GET /token` doit répondre `405` car la route accepte `POST` uniquement. Un ID token absent ou invalide doit recevoir `401`; une room absente ou terminée doit recevoir `404`. Les contrôles Egress restent soumis à autorisation et peuvent répondre `403`. En mode `automatic`, les routes mobiles de contrôle Egress doivent répondre `409`.

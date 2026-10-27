@@ -817,19 +817,8 @@ async def generate_token(body: dict, user: dict = Depends(firebase_user)):
     if not room_doc or room_doc.get("finished"):
         raise HTTPException(status_code=404, detail="Session not found.")
 
+    # POC behavior: any authenticated Firebase user can join an existing active room.
     uid = user["uid"]
-    participant_uids = room_doc.get("participant_uids", [])
-    operator_uids = room_doc.get("recording_operator_uids", [])
-    permitted_rooms = user.get("livekit_room_names", [])
-    can_join = (
-        user.get("recording_admin") is True
-        or uid == room_doc.get("owner_uid")
-        or (isinstance(participant_uids, list) and uid in participant_uids)
-        or (isinstance(operator_uids, list) and uid in operator_uids)
-        or (isinstance(permitted_rooms, list) and room in permitted_rooms)
-    )
-    if not can_join:
-        raise HTTPException(status_code=403, detail="You are not allowed to join this session.")
 
     identity = uid
     try:
