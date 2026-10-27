@@ -598,8 +598,10 @@ async def livekit_webhook(request: Request):
     if not auth_header:
         raise HTTPException(status_code=401, detail="Missing LiveKit webhook authorization.")
     try:
-        receiver = lkapi.WebhookReceiver(API_KEY, API_SECRET)
-        await asyncio.to_thread(receiver.receive, body, auth_header)
+        receiver = lkapi.WebhookReceiver(lkapi.TokenVerifier(API_KEY, API_SECRET))
+        await asyncio.to_thread(
+            receiver.receive, body.decode("utf-8"), auth_header
+        )
     except Exception as error:
         log.warning("Rejected invalid LiveKit webhook: %s", error)
         raise HTTPException(status_code=401, detail="Invalid LiveKit webhook signature.") from error
