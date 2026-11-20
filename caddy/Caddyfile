@@ -1,5 +1,14 @@
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
 {$DOMAIN} {
-	redir https://dashboard.{$DOMAIN}{uri} permanent
+	redir https://app.{$DOMAIN}{uri} permanent
 }
 
 dashboard.{$DOMAIN} {
@@ -18,12 +27,29 @@ dashboard.{$DOMAIN} {
 	}
 }
 
+app.{$DOMAIN} {
+	import security_headers
+	encode zstd gzip
+
+	@api path /api/v1/* /api/token /api/mobile/* /api/rooms/*
+	handle @api {
+		uri strip_prefix /api
+		reverse_proxy dashboard-api:8000
+	}
+	handle {
+		reverse_proxy backoffice:80
+	}
+}
+
 livekit.{$DOMAIN} {
 	reverse_proxy livekit:7880
 }
 
 api.{$DOMAIN} {
-	@mobile_api path /token /mobile/*
+	import security_headers
+	encode zstd gzip
+
+	@mobile_api path /token /mobile/* /v1/* /rooms/*
 	handle @mobile_api {
 		reverse_proxy dashboard-api:8000
 	}
@@ -37,5 +63,7 @@ api.{$DOMAIN} {
 }
 
 minio.{$DOMAIN} {
-	reverse_proxy minio:9000
+	reverse_proxy minio:9000 {
+		flush_interval -1
+	}
 }

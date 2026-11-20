@@ -4,7 +4,7 @@
 
 La configuration de production utilise Caddy pour HTTPS. Le dashboard est protégé par HTTP Basic ; l'API mobile dédiée exige un ID token Firebase. Les enregistrements MinIO restent privés ; l'API fournit des liens de lecture signés valables une heure.
 
-1. Créer des enregistrements DNS `A` pour `videolog.app`, `dashboard.videolog.app`, `api.videolog.app`, `livekit.videolog.app` et `minio.videolog.app`, tous vers l'adresse IPv4 du VPS.
+1. Créer des enregistrements DNS `A` pour `videolog.app`, `app.videolog.app`, `dashboard.videolog.app`, `api.videolog.app`, `livekit.videolog.app` et `minio.videolog.app`, tous vers l'adresse IPv4 du VPS.
 2. Configurer `.env` avec `DOMAIN=videolog.app`, `LIVEKIT_PUBLIC_URL=wss://livekit.videolog.app`, `MINIO_PUBLIC_URL=https://minio.videolog.app` et les paramètres Firebase. Placer le compte de service Firebase dans le dossier secrets indiqué par `FIREBASE_SECRETS_DIR`. `RECORDING_MODE=manual` désactive le démarrage automatique par nombre de participants. `RECORDING_MAX_DURATION_SECONDS=180` impose un arrêt serveur après trois minutes, même sans commande mobile. Utiliser des secrets alphanumériques forts pour LiveKit, MinIO et MongoDB ; les mots de passe Mongo sont inclus dans les URI.
 3. Générer le hash du mot de passe du dashboard avec `docker run --rm caddy:2-alpine caddy hash-password --plaintext 'mot-de-passe-fort'`, puis le renseigner dans `DASHBOARD_AUTH_HASH`. Dans `.env`, entourer la valeur de hash de simples quotes pour que Compose préserve ses `$`.
 4. Ouvrir sur le pare-feu du VPS `80/tcp`, `443/tcp`, `443/udp`, `7881/tcp` et `7882/udp`. Les bases, MinIO et l'API restent liées à localhost ou au réseau Docker.
@@ -70,6 +70,7 @@ Si cette version active l'authentification MongoDB sur une base preexistante cre
 | Brique / URL | Basic Auth | Protection appliquee |
 |---|---|---|
 | Dashboard `https://dashboard.videolog.app/` | Oui | Caddy protège l'interface opérateur par HTTP Basic. |
+| Back-office `https://app.videolog.app/` | Non | Authentification Firebase (e-mail/mdp + Google) et autorisations par organisation (`/api/v1/*`). |
 | API dashboard `https://dashboard.videolog.app/api/...` | Oui | Les événements SSE du dashboard passent par le vhost authentifié. |
 | API mobile `https://api.videolog.app` | Non | Seuls `/token`, `/mobile/*` et le webhook LiveKit sont routés ; Firebase ID tokens protègent les routes mobiles et le webhook est signé. |
 | API directe `127.0.0.1:8001` | Non | Port lie a localhost : pas accessible directement depuis Internet. |

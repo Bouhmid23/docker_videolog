@@ -58,6 +58,36 @@ def parse_telemetry(msg_id: str, data: dict) -> dict:
     try: payload = json.loads(data.get("raw", "{}"))
     except json.JSONDecodeError: pass
     payload = without_posture(payload)
+    payload_gps = payload.get("gps") if isinstance(payload.get("gps"), dict) else {}
+    raw_bearing = (
+        data.get("bearing")
+        if data.get("bearing") not in (None, "")
+        else (payload.get("bearing") if payload.get("bearing") is not None else payload_gps.get("bearing"))
+    )
+    raw_power = (
+        data.get("power_w")
+        if data.get("power_w") not in (None, "")
+        else payload.get("power_w")
+    )
+    extra_payload = {k: v for k, v in payload.items() if k != "gps"}
+    gps_doc = {
+        **payload_gps,
+        "lat":      number_or_none(data.get("lat", payload_gps.get("lat", 0))),
+        "lng":      number_or_none(data.get("lng", payload_gps.get("lng", 0))),
+        "altitude": number_or_none(data.get("altitude", payload_gps.get("altitude", 0))),
+    }
+    if raw_bearing is not None and raw_bearing != "":
+        gps_doc["bearing"] = number_or_none(raw_bearing, float, None)
+    telemetry_doc = {
+        "role":        data.get("role", "trainee"),
+        "speed":       number_or_none(data.get("speed", 0)),
+        "heart_rate":  number_or_none(data.get("heart_rate", 0), int),
+        "cadence":     number_or_none(data.get("cadence", 0), int),
+        **extra_payload,
+        "gps":         gps_doc,
+    }
+    if raw_power is not None and raw_power != "":
+        telemetry_doc["power_w"] = number_or_none(raw_power, float, None)
     document = {
         "_id_redis":   msg_id,
         "room_name":   data.get("room_name", "unknown"),
@@ -66,18 +96,7 @@ def parse_telemetry(msg_id: str, data: dict) -> dict:
         "capture_ts":  number_or_none(data.get("capture_ts", data.get("ts", 0))),
         "pts_ms":      number_or_none(data.get("pts_ms", 0)),
         "server_ts":   number_or_none(data.get("server_ts", 0)),
-        "telemetry": {
-            "role":        data.get("role", "trainee"),
-            "speed":       number_or_none(data.get("speed", 0)),
-            "heart_rate":  number_or_none(data.get("heart_rate", 0), int),
-            "cadence":     number_or_none(data.get("cadence", 0), int),
-            "gps": {
-                "lat":      number_or_none(data.get("lat", 0)),
-                "lng":      number_or_none(data.get("lng", 0)),
-                "altitude": number_or_none(data.get("altitude", 0)),
-            },
-            **payload,
-        },
+        "telemetry":   telemetry_doc,
         "inserted_at": datetime.now(UTC),
     }
     if data.get("packet_b64"):
@@ -141,12 +160,23 @@ async def writer():
     await mongo.admin.command("ping"); log.info("✅ MongoDB OK")
     await ensure_groups(r)
 
-    # Index TTL 7 jours
+    # Index TTL (90 jours par défaut, configurable via TELEMETRY_TTL_DAYS)
+    ttl_days = max(1, int(os.environ.get("TELEMETRY_TTL_DAYS", "90")))
+    ttl_seconds = ttl_days * 24 * 3600
+    for target_col in (col, alerts):
+        try:
+            await target_col.create_index("inserted_at", expireAfterSeconds=ttl_seconds)
+        except Exception:
+            try:
+                await target_col.drop_index("inserted_at_1")
+                await target_col.create_index("inserted_at", expireAfterSeconds=ttl_seconds)
+            except Exception:
+                pass
     try:
-        await col.create_index("inserted_at", expireAfterSeconds=7*24*3600)
         await col.create_index([("room_name", 1), ("server_ts", 1)])
-        await alerts.create_index("inserted_at", expireAfterSeconds=7*24*3600)
-    except Exception: pass
+        await col.create_index([("room_name", 1), ("pts_ms", 1)])
+    except Exception:
+        pass
 
     try:
         await col.create_index([
@@ -206,12 +236,11 @@ async def writer():
                 await reclaim_pending(r, col)
                 reclaim_counter = 0
 
-            # Sync sessions toutes les 30s
+            # Sync sessions toutes les 30s (SCAN non bloquant au lieu de KEYS)
             now = asyncio.get_event_loop().time()
             if now - session_sync_at > 30:
                 try:
-                    keys = await r.keys("session:*")
-                    for key in keys:
+                    async for key in r.scan_iter(match="session:*", count=200):
                         d = await r.hgetall(key)
                         if d:
                             await sessions.update_one(

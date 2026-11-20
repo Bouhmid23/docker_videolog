@@ -55,6 +55,7 @@ services:
     depends_on:
       - dashboard
       - dashboard-api
+      - backoffice
       - livekit
       - minio
     deploy:
@@ -79,7 +80,8 @@ services:
         rtc:
           tcp_port: 7881
           udp_port: 7882
-          use_external_ip: true
+          use_external_ip: ${LIVEKIT_USE_EXTERNAL_IP:-false}
+          node_ip: "${LIVEKIT_NODE_IP:-}"
         redis:
           address: redis:6379
         keys:
@@ -344,6 +346,7 @@ services:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?}
       REDIS_URL: redis://redis:6379
+      MONGO_URL: mongodb://${MONGO_APP_USER:?}:${MONGO_APP_PASSWORD:?}@mongo:27017/videolog?authSource=videolog
       ROOM_NAME: ${VIDEOLOG_ROOM:-poc-room}
       ROOM_NAMES: ${VIDEOLOG_ROOMS:-poc-room}
       ALERT_HR_MAX: ${ALERT_HR_MAX:-185}
@@ -353,6 +356,8 @@ services:
       livekit:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      mongo:
         condition: service_healthy
     networks:
       - videolog
@@ -394,6 +399,7 @@ services:
   # ----------------------------------------------------------
   dashboard:
     <<: *base
+    profiles: ["legacy"]
     image: ${REGISTRY:-ghcr.io/bouhmid23}/videolog-dashboard:${TAG:-latest}
     build:
       context: ./web-dashboard
@@ -442,6 +448,14 @@ services:
       FIREBASE_SERVICE_ACCOUNT_FILE: /run/secrets/firebase/firebase-service-account.json
       RECORDING_MODE: ${RECORDING_MODE:-manual}
       RECORDING_MAX_DURATION_SECONDS: ${RECORDING_MAX_DURATION_SECONDS:-180}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://app.videolog.app}
+      LEGACY_OPEN_ROOMS: ${LEGACY_OPEN_ROOMS:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-Videolog <noreply@videolog.app>}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
     volumes:
       - ${FIREBASE_SECRETS_DIR:-./secrets}:/run/secrets/firebase:ro
     depends_on:
@@ -455,3 +469,64 @@ services:
       resources:
         limits:
           memory: 384m
+
+  # ----------------------------------------------------------
+  # 10b. WORKER ARQ (tâches asynchrones)
+  # ----------------------------------------------------------
+  worker:
+    <<: *base
+    image: ${REGISTRY:-ghcr.io/bouhmid23}/videolog-dashboard-api:${TAG:-latest}
+    build:
+      context: ./mongo-writer
+      dockerfile: Dockerfile.api
+    container_name: vl-worker
+    command: ["arq", "worker.main.WorkerSettings"]
+    environment:
+      MONGO_URL: mongodb://${MONGO_APP_USER:?}:${MONGO_APP_PASSWORD:?}@mongo:27017/videolog?authSource=videolog
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:?}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - videolog
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # ----------------------------------------------------------
+  # 11. BACK-OFFICE CLUBS & COACHS (app.DOMAIN)
+  # ----------------------------------------------------------
+  backoffice:
+    <<: *base
+    image: ${REGISTRY:-ghcr.io/bouhmid23}/videolog-backoffice:${TAG:-latest}
+    build:
+      context: ./backoffice
+      dockerfile: Dockerfile
+      args:
+        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}
+        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN:-}
+        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:-}
+        VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:-}
+    container_name: vl-backoffice
+    ports:
+      - "127.0.0.1:3001:80"
+    depends_on:
+      - dashboard-api
+    networks:
+      - videolog
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 64m

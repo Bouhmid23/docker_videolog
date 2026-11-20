@@ -10,5 +10,10 @@ tmp_dir: /tmp/egress
 # Port de health check (utilisé par le healthcheck Docker)
 health_port: 8080
 
+cpu_cost:
+  room_composite_cpu_cost: 3.0
+  track_composite_cpu_cost: 1.5
+  track_cpu_cost: 0.5
+
 logging:
   level: info

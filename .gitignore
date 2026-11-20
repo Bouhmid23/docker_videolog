@@ -2,5 +2,11 @@
 __pycache__/
 .current_egress_id
 .env
-.env.example
 secrets/
+.agents/
+make-interfaces-feel-better/
+.pytest_cache/
+.ruff_cache/
+node_modules/
+dist/
+.venv/

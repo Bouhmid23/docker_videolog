@@ -1,0 +1,131 @@
+@font-face {
+  font-family: "TradeGothicBold";
+  src: url("/fonts/TradeGothicBold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --vl-bg: #090b0e;
+  --vl-bg-2: #0f1318;
+  --vl-panel: #151a21;
+  --vl-line: #232b35;
+  --vl-text: #eef2f6;
+  --vl-muted: #98a3b0;
+  --vl-cyan: #18abf8;
+  --vl-blue: #3a8fd6;
+  --vl-rec: #e5373a;
+  --vl-ok: #3ddc97;
+  color-scheme: dark;
+}
+
+html,
+body {
+  background-color: var(--vl-bg);
+  color: var(--vl-text);
+  font-family: "Montserrat", system-ui, -apple-system, "Segoe UI", sans-serif;
+  min-height: 100vh;
+}
+
+body {
+  background-image:
+    linear-gradient(rgba(35, 43, 53, 0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(35, 43, 53, 0.35) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+.vl-display {
+  font-family: "TradeGothicBold", "Montserrat", sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.vl-kpi {
+  font-family: "TradeGothicBold", "Montserrat", sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.vl-header-glass {
+  background: rgba(9, 11, 14, 0.88) !important;
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--vl-line) !important;
+}
+
+.vl-navbar {
+  background: var(--vl-bg-2) !important;
+  border-right: 1px solid var(--vl-line) !important;
+}
+
+.vl-card {
+  background: var(--vl-panel) !important;
+  border: 1px solid var(--vl-line) !important;
+  border-radius: 14px !important;
+}
+
+/* Harmonisation Mantine Dark avec la charte VideoLog */
+.mantine-Paper-root,
+.mantine-Card-root,
+.mantine-Modal-content,
+.mantine-Modal-header {
+  background-color: var(--vl-panel);
+  border-color: var(--vl-line);
+  color: var(--vl-text);
+}
+
+.mantine-Input-input,
+.mantine-Select-input,
+.mantine-MultiSelect-input,
+.mantine-NumberInput-input,
+.mantine-PasswordInput-innerInput {
+  background-color: var(--vl-bg-2);
+  border-color: var(--vl-line);
+  color: var(--vl-text);
+}
+
+.mantine-Input-input:focus,
+.mantine-Select-input:focus,
+.mantine-MultiSelect-input:focus {
+  border-color: var(--vl-cyan);
+}
+
+.mantine-InputWrapper-label {
+  color: var(--vl-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mantine-Table-table {
+  --table-border-color: var(--vl-line);
+  --table-striped-color: rgba(15, 19, 24, 0.6);
+  --table-hover-color: rgba(24, 171, 248, 0.08);
+}
+
+.mantine-Table-th {
+  color: var(--vl-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mantine-NavLink-root[data-active="true"] {
+  background-color: rgba(24, 171, 248, 0.14);
+  color: var(--vl-cyan);
+  border: 1px solid rgba(24, 171, 248, 0.35);
+}
+
+.mantine-Button-root[data-variant="filled"] {
+  background-color: var(--vl-cyan);
+  color: #04141f;
+  font-weight: 700;
+}
+
+.mantine-Button-root[data-variant="filled"]:hover {
+  filter: brightness(1.08);
+  background-color: var(--vl-cyan);
+}
+

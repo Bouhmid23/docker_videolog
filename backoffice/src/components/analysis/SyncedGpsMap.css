@@ -1,0 +1,37 @@
+.vl-replay-map .tc-pin {
+  background: none;
+  border: 0;
+}
+
+.vl-replay-map .tc-pin .pin-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(24, 171, 248, 0.35);
+  animation: replayPinPulse 1.8s ease-out infinite;
+}
+
+.vl-replay-map .tc-pin .pin-arrow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin: -9px 0 0 -7px;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 18px solid #18abf8;
+  filter: drop-shadow(0 0 3px #000);
+  transform-origin: 7px 9px;
+}
+
+@keyframes replayPinPulse {
+  from {
+    transform: scale(0.4);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}

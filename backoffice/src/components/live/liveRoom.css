@@ -1,0 +1,2250 @@
+/* Charte VideoLog Salon Live — scopée sous .vl-room-root pour isoler du reste du back-office Mantine */
+@font-face {
+  font-family: "Sport Display";
+  font-weight: 700 800;
+  src: local("Trade Gothic Bold"), local("TradeGothic-Bold"), local("Trade Gothic LT Bold"),
+    local("Barlow Condensed Bold"), local("BarlowCondensed-Bold");
+}
+
+.vl-room-root {
+  --bg: #090b0e;
+  --bg-2: #0f1318;
+  --panel: #151a21;
+  --line: #232b35;
+  --text: #eef2f6;
+  --muted: #98a3b0;
+  --cyan: #18abf8;
+  --blue: #3a8fd6;
+  --rec: #e5373a;
+  --ok: #3ddc97;
+  --radius: 14px;
+  --font: "Montserrat", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "TradeGothicBold", "Sport Display", "Barlow Condensed", "Arial Narrow", "Oswald", sans-serif;
+  --tele-w: 390px;
+  --topbar-h: 56px;
+  --sd-data-w: 420px;
+  --sd-w: 420px;
+  color-scheme: dark;
+  min-height: 100vh;
+  color: var(--text);
+  font: 14px/1.45 var(--font);
+  background-color: var(--bg);
+  background-image: linear-gradient(rgba(35, 43, 53, 0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(35, 43, 53, 0.35) 1px, transparent 1px);
+  background-size: 64px 64px;
+  overflow-x: clip;
+}
+
+.vl-room-root * {
+  box-sizing: border-box;
+}
+
+/* --- barre du haut --- */
+.vl-room-root .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 8px 16px;
+  background: rgba(9, 11, 14, 0.88);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+
+.vl-room-root .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  font-size: 15px;
+}
+
+.vl-room-root .brand img {
+  height: 36px;
+  width: auto;
+  display: block;
+}
+
+.vl-room-root .brand em {
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-size: 12px;
+  color: var(--muted);
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+.vl-room-root .room-topbar-back {
+  margin-left: auto;
+}
+
+.vl-room-root #room[hidden],
+.vl-room-root #login[hidden] {
+  display: none;
+}
+
+.vl-room-root #room:not([hidden]) {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.vl-room-root #roomTitle {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--cyan);
+  letter-spacing: 0.04em;
+}
+
+.vl-room-root #participants {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vl-room-root #participants li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.vl-room-root .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line);
+  flex: none;
+}
+
+.vl-room-root .dot.speaking {
+  background: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(24, 171, 248, 0.25);
+}
+
+.vl-room-root .you {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.vl-room-root #room label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.vl-room-root #room .spacer {
+  flex: 1;
+}
+
+.vl-room-root .data-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.vl-room-root .data-bar #dataFilter {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text);
+  font: 12px var(--font);
+}
+
+.vl-room-root #dataClear {
+  padding: 6px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.vl-room-root .data-wrap {
+  position: relative;
+  margin-top: 12px;
+}
+
+.vl-room-root #dataJump {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: rgba(9, 11, 14, 0.92);
+}
+
+.vl-room-root #dataJump[hidden] {
+  display: none;
+}
+
+.vl-room-root #dataFilterInfo {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.vl-room-root #dataFilterInfo:empty {
+  display: none;
+}
+
+.vl-room-root #dataLog {
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+  color: var(--muted);
+  font: 11px/1.4 ui-monospace, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.vl-room-root #bands .tr {
+  margin: 0 0 12px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.vl-room-root #room #postureBox {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.vl-room-root #room #postureBox * {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: inline;
+}
+
+/* --- formulaires et boutons --- */
+.vl-room-root label {
+  display: block;
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.vl-room-root input:not([type="checkbox"]),
+.vl-room-root select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
+}
+
+.vl-room-root #room select {
+  width: auto;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.vl-room-root input:focus-visible,
+.vl-room-root select:focus-visible,
+.vl-room-root button:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+.vl-room-root input[type="checkbox"] {
+  accent-color: var(--cyan);
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.vl-room-root button {
+  padding: 9px 16px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--cyan);
+  color: #04141f;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s, border-color 0.15s;
+}
+
+.vl-room-root button:hover {
+  filter: brightness(1.1);
+}
+
+.vl-room-root button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.vl-room-root button.secondary {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.vl-room-root button.secondary:hover {
+  border-color: var(--cyan);
+  filter: none;
+}
+
+.vl-room-root #room button {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.vl-room-root #leave:hover {
+  border-color: var(--rec);
+  color: var(--rec);
+}
+
+.vl-room-root #status {
+  min-height: 0;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.vl-room-root #status:empty {
+  display: none;
+}
+
+.vl-room-root .ok {
+  color: var(--ok) !important;
+}
+
+.vl-room-root .err {
+  color: var(--rec) !important;
+}
+
+/* --- connexion & lobby --- */
+.vl-room-root .page {
+  padding: 12px 16px 20px;
+  width: 100%;
+}
+
+.vl-room-root #login {
+  max-width: 480px;
+  margin: 5vh auto 0;
+  padding: 26px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.vl-room-root #login h1 {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.vl-room-root #login p {
+  margin: 6px 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.vl-room-root #login button[type="submit"] {
+  width: 100%;
+  margin-top: 18px;
+  padding: 12px;
+}
+
+.vl-room-root .lobby-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.vl-room-root .lobby-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(24, 171, 248, 0.14);
+  color: var(--cyan);
+}
+
+.vl-room-root .lobby-badge-status {
+  background: rgba(61, 220, 151, 0.14);
+  color: #3ddc97;
+}
+
+.vl-room-root .lobby-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.vl-room-root .lobby-section {
+  margin-top: 14px;
+}
+
+.vl-room-root .lobby-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.vl-room-root .lobby-participants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.vl-room-root .lobby-participants li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  font-size: 12px;
+}
+
+.vl-room-root .lobby-participants li .p-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.vl-room-root .lobby-participants li.online .p-dot {
+  background: #3ddc97;
+}
+
+.vl-room-root .lobby-preview-wrap {
+  position: relative;
+  margin-top: 14px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #090b0e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vl-room-root #lobbyPreview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  display: block;
+}
+
+.vl-room-root #lobbyPreview[hidden] {
+  display: none;
+}
+
+.vl-room-root .lobby-preview-off {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+  padding: 12px;
+}
+
+.vl-room-root .lobby-room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.vl-room-root .lobby-room-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.vl-room-root .lobby-room-card:hover {
+  border-color: var(--cyan);
+}
+
+.vl-room-root .lobby-back {
+  display: inline-block;
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--cyan);
+  text-decoration: none;
+}
+
+.vl-room-root .workout-banner[hidden] {
+  display: none;
+}
+
+.vl-room-root .workout-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  background: var(--panel);
+  border: 1px solid var(--cyan);
+  border-radius: var(--radius);
+}
+
+.vl-room-root .wb-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+}
+
+.vl-room-root .wb-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.vl-room-root .wb-title {
+  color: var(--cyan);
+  font-weight: 700;
+}
+
+.vl-room-root .wb-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 16px;
+}
+
+.vl-room-root .wb-target {
+  font-size: 13px;
+  color: #3ddc97;
+  font-weight: 700;
+}
+
+.vl-room-root .wb-next {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.vl-room-root .wb-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.vl-room-root .wb-timer {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--text);
+  min-width: 74px;
+  text-align: right;
+}
+
+.vl-room-root .wb-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.vl-room-root .wb-controls button {
+  padding: 6px 10px;
+  font-size: 12px;
+  margin: 0;
+  width: auto;
+}
+
+.vl-room-root label.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.vl-room-root #login .hint {
+  margin: 6px 0 0 25px;
+  font-size: 11px;
+}
+
+/* aperçu de ma propre webcam (en miroir) */
+.vl-room-root #selfView {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 25;
+  width: 200px;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #000;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.vl-room-root #selfView[hidden] {
+  display: none;
+}
+
+.vl-room-root #selfView.dragging {
+  cursor: grabbing;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+}
+
+.vl-room-root #selfView video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.vl-room-root #selfView span {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(9, 11, 14, 0.75);
+  font: 700 10px/1.3 var(--font);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* --- une ligne par sportif : télémétrie + 3 panneaux --- */
+.vl-room-root #videos {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vl-room-root .video-card {
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.vl-room-root .video-posture {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.vl-room-root .vwrap {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 0.9fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.vl-room-root .vwrap > * {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.vl-room-root .video-stage,
+.vl-room-root .avatar-babylon {
+  position: relative;
+  height: 100%;
+}
+
+.vl-room-root .vwrap video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  object-fit: contain;
+}
+
+.vl-room-root .video-stage .overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.vl-room-root.mirror-video .video-stage video,
+.vl-room-root.mirror-video .video-stage .overlay {
+  transform: scaleX(-1);
+}
+
+.vl-room-root .avatar-babylon iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.vl-room-root .video-stage::before,
+.vl-room-root .panel-title {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  left: 10px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(9, 11, 14, 0.75);
+  color: var(--text);
+  font: 700 10px/1.3 var(--font);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.vl-room-root .video-stage::before {
+  content: "Vidéo · 33 points";
+}
+
+.vl-room-root .panel-title {
+  left: auto;
+  right: 10px;
+}
+
+.vl-room-root .avatar-babylon .avatar-credit {
+  z-index: 2;
+  max-width: 70%;
+}
+
+.vl-room-root .avatar-credit {
+  position: absolute;
+  z-index: 1;
+  left: 10px;
+  bottom: 8px;
+  color: var(--muted);
+  font: 500 9px/1.2 var(--font);
+}
+
+.vl-room-root .avatar-credit a {
+  color: inherit;
+}
+
+.vl-room-root.no-avatar .avatar-babylon,
+.vl-room-root.no-avatar .glb-label,
+.vl-room-root:not(.has-avatar) .glb-label {
+  display: none !important;
+}
+
+.vl-room-root.no-avatar .vwrap,
+.vl-room-root .video-card.avatar-off .vwrap {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.6fr);
+}
+
+.vl-room-root.no-avatar .vwrap:not(:has(> .coach-ia)),
+.vl-room-root .video-card.avatar-off .vwrap:not(:has(> .coach-ia)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.vl-room-root .video-card.avatar-off .avatar-babylon {
+  display: none;
+}
+
+@media (min-width: 901px) {
+  .vl-room-root .video-card {
+    height: auto;
+  }
+  .vl-room-root .vwrap {
+    flex: none;
+    height: max(400px, calc(100vh - 380px));
+  }
+  .vl-room-root .page {
+    transition: margin-left 0.38s cubic-bezier(0.22, 0.8, 0.25, 1),
+      margin-right 0.38s cubic-bezier(0.22, 0.8, 0.25, 1);
+  }
+  .vl-room-root.in-room.sd-pad-left-data .page {
+    margin-left: var(--sd-data-w);
+    width: auto;
+  }
+  .vl-room-root.tele-open .page {
+    margin-right: var(--tele-w);
+    width: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .vl-room-root .vwrap,
+  .vl-room-root.no-avatar .vwrap,
+  .vl-room-root .video-card.avatar-off .vwrap {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+  .vl-room-root .video-stage,
+  .vl-room-root .avatar-babylon {
+    height: auto;
+    aspect-ratio: 3 / 4;
+    max-height: 70vh;
+  }
+  .vl-room-root .vwrap > .coach-ia {
+    min-height: 200px;
+  }
+}
+
+/* --- TraineeUI (bandeau sportif + sparklines) --- */
+.vl-room-root .tr {
+  --warn: #f5a524;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.vl-room-root .tr-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.vl-room-root .tr-name {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.vl-room-root .tr-role {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.vl-room-root .tr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-2);
+  font-size: 14px;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.vl-room-root .tr-chip svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.vl-room-root .tr-mic[data-state="live"] svg {
+  color: var(--cyan);
+}
+
+.vl-room-root .tr-mic[data-state="muted"] svg,
+.vl-room-root .tr-mic[data-state="none"] svg,
+.vl-room-root .tr-mic[data-state="pending"] svg {
+  color: var(--muted);
+}
+
+.vl-room-root .tr-mic.speaking {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(24, 171, 248, 0.2);
+}
+
+.vl-room-root .tr-meter {
+  width: 54px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(24, 171, 248, 0.16);
+  overflow: hidden;
+}
+
+.vl-room-root .tr-meter i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--cyan);
+  transition: width 0.12s linear;
+}
+
+.vl-room-root .tr-mic:not([data-state="live"]) .tr-meter {
+  display: none;
+}
+
+.vl-room-root .tr-q svg {
+  color: var(--muted);
+}
+
+.vl-room-root .tr-q[data-q="excellent"] svg,
+.vl-room-root .tr-q[data-q="good"] svg {
+  color: var(--ok);
+}
+
+.vl-room-root .tr-q[data-q="poor"] svg {
+  color: var(--warn);
+}
+
+.vl-room-root .tr-q[data-q="lost"] svg {
+  color: var(--rec);
+}
+
+.vl-room-root .tr-kpi {
+  gap: 6px;
+  padding: 3px 12px;
+}
+
+.vl-room-root .tr-kpi small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.vl-room-root .tr-kpi b {
+  font-size: 14px;
+  letter-spacing: 0.03em;
+  font-weight: 800;
+}
+
+.vl-room-root .tr-spacer {
+  flex: 1;
+}
+
+.vl-room-root .tr-toggle {
+  padding: 3px 10px !important;
+  font-size: 11px !important;
+}
+
+.vl-room-root .tr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 8px;
+}
+
+.vl-room-root .tr-grid[hidden],
+.vl-room-root .tr-netbox[hidden] {
+  display: none;
+}
+
+.vl-room-root .tr-sect {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.vl-room-root .tr-sect small {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  margin-left: 6px;
+}
+
+.vl-room-root .tr-tile {
+  position: relative;
+  padding: 8px 10px 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-2);
+  min-width: 0;
+}
+
+.vl-room-root .tr-tile .t-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.vl-room-root .tr-tile .t-warn {
+  color: var(--warn);
+  font-weight: 800;
+}
+
+.vl-room-root .tr-tile .t-val {
+  margin-top: 2px;
+  font-size: 22px;
+  letter-spacing: 0.01em;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.vl-room-root .tr-tile .t-sub {
+  min-height: 14px;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vl-room-root .tr-tile canvas {
+  display: block;
+  width: 100%;
+  height: 58px;
+  margin-top: 2px;
+  cursor: crosshair;
+}
+
+.vl-room-root .tr-tip {
+  position: absolute;
+  z-index: 5;
+  top: -6px;
+  transform: translateY(-100%);
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(9, 11, 14, 0.92);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.vl-room-root .tr-tip[hidden] {
+  display: none;
+}
+
+.vl-room-root .tr-details {
+  margin: 0;
+  font-size: 11px;
+}
+
+.vl-room-root .tr-details summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.vl-room-root .tr-details summary:hover {
+  color: var(--text);
+}
+
+/* --- Coach IA --- */
+.vl-room-root .vwrap > .coach-ia {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 44px 12px 12px;
+  overflow-y: auto;
+}
+
+.vl-room-root .coach-ia .panel-title {
+  right: auto;
+  left: 10px;
+}
+
+.vl-room-root .coach-ia[data-live="1"] .panel-title {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.vl-room-root .ia-status {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+  color: var(--muted);
+  font-weight: 600;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.vl-room-root .coach-ia[data-live="1"] .ia-status {
+  color: var(--text);
+}
+
+.vl-room-root .coach-ia.is-alert .ia-status {
+  border-color: var(--rec);
+  background: rgba(229, 55, 58, 0.16);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 800;
+  animation: ia-pulse 0.6s ease-in-out 2;
+}
+
+@keyframes ia-pulse {
+  50% {
+    background: rgba(229, 55, 58, 0.4);
+  }
+}
+
+.vl-room-root .ia-count {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.vl-room-root .ia-count strong {
+  font: 800 40px/1 var(--font);
+  color: var(--cyan);
+}
+
+.vl-room-root .ia-count small,
+.vl-room-root .ia-view {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.vl-room-root .ia-metrics {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.vl-room-root .ia-reps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.vl-room-root .ia-reps li {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+}
+
+.vl-room-root .ia-reps li.good {
+  border-left: 3px solid var(--ok);
+}
+
+.vl-room-root .ia-reps li.bad {
+  border-left: 3px solid var(--rec);
+}
+
+.vl-room-root .ia-reps li.part {
+  border-left: 3px solid var(--muted);
+  color: var(--muted);
+}
+
+.vl-room-root .ia-speak {
+  margin-top: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* --- CoachPalette (ballon & lunettes) --- */
+.vl-room-root .coach-palette {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--line, #333);
+  border-radius: 999px;
+  background: rgba(9, 11, 14, 0.78);
+}
+
+.vl-room-root .coach-palette button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.vl-room-root .coach-palette button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  filter: none;
+}
+
+.vl-room-root .coach-palette button[aria-pressed="true"] {
+  border-color: #f28c28;
+  background: rgba(242, 140, 40, 0.22);
+}
+
+.vl-room-root .coach-palette img,
+.vl-room-root .coach-palette svg {
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+}
+
+.vl-room-root .glasses-panel {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 58px;
+  transform: translateX(-50%);
+  width: min(92%, 340px);
+  padding: 8px;
+  border: 1px solid var(--line, #333);
+  border-radius: 12px;
+  background: rgba(9, 11, 14, 0.88);
+  color: #eee;
+  font-size: 12px;
+}
+
+.vl-room-root .glasses-panel[hidden] {
+  display: none;
+}
+
+.vl-room-root .glasses-panel textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  padding: 6px 8px;
+  border: 1px solid var(--line, #333);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.vl-room-root .glasses-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.vl-room-root .glasses-status {
+  flex: 1;
+  opacity: 0.8;
+}
+
+.vl-room-root .glasses-row button {
+  padding: 4px 12px;
+  border: 1px solid #f28c28;
+  border-radius: 999px;
+  background: rgba(242, 140, 40, 0.22);
+  color: inherit;
+  cursor: pointer;
+}
+
+.vl-room-root .glasses-row button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.vl-room-root .video-stage .marker-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* --- SideDrawer gauche (DataTracks) --- */
+.vl-room-root .sd-drawer {
+  position: fixed;
+  top: var(--topbar-h, 56px);
+  bottom: 0;
+  width: var(--sd-w, 420px);
+  max-width: 92vw;
+  z-index: 14;
+  display: flex;
+  flex-direction: column;
+  background: rgba(15, 19, 24, 0.97);
+  backdrop-filter: blur(10px);
+  transition: transform 0.38s cubic-bezier(0.22, 0.8, 0.25, 1), visibility 0s 0.38s;
+  visibility: hidden;
+}
+
+.vl-room-root .sd-left {
+  left: 0;
+  border-right: 1px solid var(--line);
+  box-shadow: 16px 0 40px rgba(0, 0, 0, 0.35);
+  transform: translateX(-100%);
+}
+
+.vl-room-root.in-room .sd-drawer {
+  visibility: visible;
+  transition: transform 0.38s cubic-bezier(0.22, 0.8, 0.25, 1);
+}
+
+.vl-room-root:not(.in-room) .sd-drawer {
+  display: none;
+}
+
+.vl-room-root .sd-drawer.open {
+  transform: none;
+}
+
+.vl-room-root .sd-toggle {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  width: 36px;
+  height: 104px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.vl-room-root .sd-left .sd-toggle {
+  right: -36px;
+  border-left: 0;
+  border-radius: 0 12px 12px 0;
+}
+
+.vl-room-root .sd-toggle:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  filter: none;
+}
+
+.vl-room-root .sd-toggle svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.38s cubic-bezier(0.22, 0.8, 0.25, 1);
+}
+
+.vl-room-root .sd-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.vl-room-root .sd-toggle span {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font: 700 9px/1 var(--font);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.vl-room-root .sd-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  font: 800 12px/1 var(--font);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.vl-room-root .sd-blocks {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vl-room-root .sd-block {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  min-width: 0;
+}
+
+.vl-room-root .sd-block-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: 700 12px/1.2 var(--font);
+  text-align: left;
+  cursor: pointer;
+  letter-spacing: 0.1em;
+}
+
+.vl-room-root .sd-block-head:hover {
+  filter: none;
+  color: var(--cyan);
+}
+
+.vl-room-root .sd-block-title {
+  flex: 1;
+}
+
+.vl-room-root .sd-badge {
+  color: var(--muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.vl-room-root .sd-badge:empty {
+  display: none;
+}
+
+.vl-room-root .sd-block-head svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  transition: transform 0.2s;
+}
+
+.vl-room-root .sd-block.collapsed .sd-block-head svg {
+  transform: rotate(-90deg);
+}
+
+.vl-room-root .sd-block.collapsed .sd-block-body {
+  display: none;
+}
+
+.vl-room-root .sd-block-body {
+  padding: 0 12px 12px;
+}
+
+.vl-room-root .sd-block-body pre {
+  max-height: none !important;
+  height: max(220px, calc(100vh - 420px));
+  margin: 0 !important;
+}
+
+/* --- Tiroir Télémétrie droite --- */
+.vl-room-root .tele-drawer {
+  position: fixed;
+  top: var(--topbar-h);
+  right: 0;
+  bottom: 0;
+  width: var(--tele-w);
+  max-width: 92vw;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  background: rgba(15, 19, 24, 0.97);
+  backdrop-filter: blur(10px);
+  border-left: 1px solid var(--line);
+  box-shadow: -16px 0 40px rgba(0, 0, 0, 0.35);
+  transform: translateX(100%);
+  transition: transform 0.38s cubic-bezier(0.22, 0.8, 0.25, 1), visibility 0s 0.38s;
+  visibility: hidden;
+}
+
+.vl-room-root.in-room .tele-drawer {
+  visibility: visible;
+  transition: transform 0.38s cubic-bezier(0.22, 0.8, 0.25, 1);
+}
+
+.vl-room-root.tele-open .tele-drawer {
+  transform: none;
+}
+
+.vl-room-root:not(.in-room) .tele-drawer {
+  display: none;
+}
+
+.vl-room-root .tele-toggle {
+  position: absolute;
+  left: -36px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 36px;
+  height: 104px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-radius: 12px 0 0 12px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.vl-room-root .tele-toggle:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  filter: none;
+}
+
+.vl-room-root .tele-toggle svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.38s cubic-bezier(0.22, 0.8, 0.25, 1);
+}
+
+.vl-room-root.tele-open .tele-toggle svg {
+  transform: rotate(180deg);
+}
+
+.vl-room-root .tele-toggle span {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font: 700 9px/1 var(--font);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.vl-room-root .tele-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  font: 800 12px/1 var(--font);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.vl-room-root .tele-cards {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vl-room-root .tele-empty {
+  margin: 24px 8px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.vl-room-root .tcard {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.vl-room-root .tc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.vl-room-root .tc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.vl-room-root .tcard.folded {
+  gap: 0;
+}
+
+.vl-room-root .tcard.folded .tc-body {
+  display: none;
+}
+
+.vl-room-root .tc-fold {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.vl-room-root .tc-fold:hover {
+  color: var(--cyan);
+  background: var(--bg-2);
+  filter: none;
+}
+
+.vl-room-root .tc-fold svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s ease;
+}
+
+.vl-room-root .tcard.folded .tc-fold svg {
+  transform: rotate(-90deg);
+}
+
+.vl-room-root .tc-head b {
+  font-size: 15px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.vl-room-root .tc-role {
+  padding: 1px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.vl-room-root .tc-role:empty {
+  display: none;
+}
+
+.vl-room-root .tc-live {
+  margin-left: auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--line);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+
+.vl-room-root .tc-live.on {
+  background: var(--ok);
+  box-shadow: 0 0 0 4px rgba(61, 220, 151, 0.18);
+}
+
+.vl-room-root .tc-label {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.vl-room-root .tc-block {
+  min-width: 0;
+}
+
+.vl-room-root .tc-map {
+  position: relative;
+  height: 190px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-2);
+}
+
+.vl-room-root .tc-nogps {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 0 12px;
+}
+
+.vl-room-root .tc-coords {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vl-room-root .tc-map .leaflet-container {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-2);
+  font: inherit;
+}
+
+.vl-room-root .tc-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(195deg) brightness(0.88) contrast(0.92) saturate(0.55);
+}
+
+.vl-room-root .tc-map .leaflet-control-attribution {
+  background: rgba(9, 11, 14, 0.7);
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.vl-room-root .tc-map .leaflet-control-attribution a {
+  color: var(--muted);
+}
+
+.vl-room-root .tc-pin {
+  background: none;
+  border: 0;
+}
+
+.vl-room-root .tc-pin .pin-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(24, 171, 248, 0.35);
+  animation: pinpulse 1.8s ease-out infinite;
+}
+
+.vl-room-root .tc-pin .pin-arrow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin: -9px 0 0 -7px;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 18px solid var(--cyan);
+  filter: drop-shadow(0 0 3px #000);
+  transform-origin: 7px 9px;
+}
+
+@keyframes pinpulse {
+  from {
+    transform: scale(0.4);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+.vl-room-root .tc-hr {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.vl-room-root .tc-heart {
+  width: 34px;
+  height: 34px;
+  fill: var(--muted);
+  flex: none;
+  transform-origin: center;
+}
+
+.vl-room-root .tc-heart.beat {
+  animation: heartbeat 1s ease-in-out infinite;
+}
+
+@keyframes heartbeat {
+  0%,
+  100% {
+    scale: 1;
+  }
+  12% {
+    scale: 1.28;
+  }
+  28% {
+    scale: 1;
+  }
+  40% {
+    scale: 1.14;
+  }
+  55% {
+    scale: 1;
+  }
+}
+
+.vl-room-root .tc-bpm {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.vl-room-root .tc-bpm strong {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.vl-room-root .tc-bpm small,
+.vl-room-root .tc-speed small,
+.vl-room-root .tc-ringtxt small,
+.vl-room-root .tc-alt small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.vl-room-root .tc-zone {
+  margin-left: auto;
+  padding: 3px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.vl-room-root .tc-hr-chart {
+  display: block;
+  width: 100%;
+  height: 86px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+}
+
+.vl-room-root .tc-gauge {
+  position: relative;
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+.vl-room-root .tc-gauge svg {
+  display: block;
+  width: 100%;
+}
+
+.vl-room-root .g-track,
+.vl-room-root .g-val {
+  fill: none;
+  stroke-width: 13;
+  stroke-linecap: round;
+}
+
+.vl-room-root .g-track {
+  stroke: var(--line);
+}
+
+.vl-room-root .g-val {
+  transition: stroke-dasharray 0.22s linear;
+}
+
+.vl-room-root .g-needle {
+  transform-origin: 100px 100px;
+  transition: transform 0.22s linear;
+}
+
+.vl-room-root .g-needle circle {
+  fill: var(--text);
+  stroke: var(--panel);
+  stroke-width: 3;
+}
+
+.vl-room-root .g-t {
+  fill: var(--muted);
+  font: 600 10px var(--font);
+}
+
+.vl-room-root .tc-speed {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.vl-room-root .tc-speed strong {
+  font-size: 30px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.vl-room-root .tc-stats {
+  display: flex;
+  justify-content: center;
+  gap: 22px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.vl-room-root .tc-stats b {
+  color: var(--text);
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+.vl-room-root .tc-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.vl-room-root .tc-mini {
+  min-width: 0;
+  padding: 10px 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.vl-room-root .tc-mini .tc-label {
+  align-self: flex-start;
+}
+
+.vl-room-root .tc-ringwrap {
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+
+.vl-room-root .tc-ring {
+  width: 100%;
+  height: 100%;
+}
+
+.vl-room-root .r-track,
+.vl-room-root .r-val {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.vl-room-root .r-track {
+  stroke: var(--line);
+}
+
+.vl-room-root .r-val {
+  stroke: var(--cyan);
+  transition: stroke-dasharray 0.22s linear;
+}
+
+.vl-room-root .tc-ringtxt {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.vl-room-root .tc-ringtxt strong {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.vl-room-root .tc-ringtxt small {
+  font-size: 9px;
+}
+
+.vl-room-root .tc-alt {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.vl-room-root .tc-alt strong {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.vl-room-root .tc-alt-chart {
+  width: 100%;
+  height: 32px;
+  margin-top: 4px;
+}
+
+.vl-room-root .tc-compass {
+  width: 64px;
+  height: 64px;
+}
+
+.vl-room-root .tc-compass circle {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 2;
+}
+
+.vl-room-root .tc-compass text {
+  fill: var(--muted);
+  font: 700 9px var(--font);
+}
+
+.vl-room-root .c-needle {
+  transform-origin: 32px 32px;
+  transition: transform 0.22s linear;
+}
+
+.vl-room-root .c-needle polygon {
+  fill: var(--cyan);
+}
+
+.vl-room-root .tc-dir {
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* --- Police display sport --- */
+.vl-room-root .brand,
+.vl-room-root .brand em,
+.vl-room-root #login h1,
+.vl-room-root .tele-head,
+.vl-room-root .tele-toggle span,
+.vl-room-root .sd-head,
+.vl-room-root .sd-toggle span,
+.vl-room-root .sd-block-head,
+.vl-room-root .tr-name,
+.vl-room-root .tr-role,
+.vl-room-root .tr-kpi small,
+.vl-room-root .tr-kpi b,
+.vl-room-root .tr-sect,
+.vl-room-root .tr-tile .t-label,
+.vl-room-root .tr-tile .t-val,
+.vl-room-root .tr-chip,
+.vl-room-root .tc-head b,
+.vl-room-root .tc-role,
+.vl-room-root .tc-label,
+.vl-room-root .tc-bpm strong,
+.vl-room-root .tc-speed strong,
+.vl-room-root .tc-ringtxt strong,
+.vl-room-root .glb-label,
+.vl-room-root #selfView span {
+  font-family: var(--font-display);
+}
+
+/* ── Bouton Commencer programme & Écran récapitulatif de fin de session ── */
+.vl-room-root .wb-start-btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--cyan);
+  background: var(--cyan);
+  color: #06131f;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.15s ease;
+  width: auto;
+  margin: 0;
+}
+
+.vl-room-root .wb-start-btn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.vl-room-root .wb-waiting-pill {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.1);
+  color: var(--cyan);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.vl-room-root .ended-summary-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 24px 12px;
+}
+
+.vl-room-root .ended-summary-card {
+  width: 100%;
+  max-width: 760px;
+}
+
+.vl-room-root .ended-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.vl-room-root .ended-header h2 {
+  margin: 4px 0 0;
+  font-size: 26px;
+  font-family: var(--font-display);
+}
+
+.vl-room-root .ended-badge {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(61, 220, 151, 0.15);
+  border: 1px solid rgba(61, 220, 151, 0.4);
+  color: #3ddc97;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.vl-room-root .ended-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.vl-room-root .ended-kpi {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vl-room-root .ended-kpi-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.vl-room-root .ended-kpi-val {
+  font-size: 20px;
+  font-family: var(--font-display);
+  color: var(--text);
+}
+
+.vl-room-root .ended-kpi-val.ended-kpi-sm {
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.vl-room-root .ended-role-tag {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.vl-room-root .ended-table-wrap {
+  overflow-x: auto;
+}
+
+.vl-room-root .ended-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.vl-room-root .ended-table th,
+.vl-room-root .ended-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.vl-room-root .ended-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.vl-room-root .ended-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 13px;
+}
+
+.vl-room-root .ended-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.vl-room-root .ended-actions button.secondary {
+  width: auto;
+  margin: 0;
+  padding: 10px 16px;
+}

@@ -56,7 +56,24 @@ mongo     = AsyncIOMotorClient(MONGO_URL)
 col       = mongo.videolog.recordings
 telemetry_col = mongo.videolog.telemetry
 rooms_col = mongo.videolog.room_state
+orgs_col  = mongo.videolog.organizations
 r: aioredis.Redis = None
+
+
+async def _get_max_recording_seconds(room_name: str) -> int:
+    try:
+        room = await rooms_col.find_one({"room_name": room_name}, {"org_id": 1})
+        org_id = (room or {}).get("org_id")
+        if org_id:
+            org = await orgs_col.find_one(
+                {"_id": org_id}, {"settings.max_recording_s": 1}
+            )
+            custom = ((org or {}).get("settings") or {}).get("max_recording_s")
+            if isinstance(custom, (int, float)) and custom >= 60:
+                return int(custom)
+    except Exception as exc:
+        log.warning("Fallback max recording duration for %s: %s", room_name, exc)
+    return RECORDING_MAX_DURATION_SECONDS
 
 # Per-room live participant roles, active Egress IDs, and pending tasks.
 _state: dict = {}
@@ -212,6 +229,29 @@ def _participant_joined_at(participant) -> float | None:
     return None
 
 
+def _normalize_role(raw_role: str | None) -> str | None:
+    role = str(raw_role or "").strip().casefold()
+    if role in {"coach", "org_owner", "org_admin", "platform_admin", "owner", "admin", "staff"}:
+        return "coach"
+    if role in {"trainee", "athlete", "guest"}:
+        return "trainee"
+    if role == "observer":
+        return "observer"
+    return None
+
+
+def _role_from_metadata(metadata_str: str | None) -> str | None:
+    if not metadata_str or not isinstance(metadata_str, str):
+        return None
+    try:
+        data = json.loads(metadata_str)
+        if isinstance(data, dict):
+            return _normalize_role(data.get("role"))
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
 def _telemetry_activity_at(document: dict) -> float | None:
     inserted_at = document.get("inserted_at")
     if isinstance(inserted_at, datetime):
@@ -234,7 +274,6 @@ async def _sweep_inactive_participants():
         try:
             lk = lkapi.LiveKitAPI(LIVEKIT_URL, API_KEY, API_SECRET)
             rooms = await lk.room.list_rooms(proto_room.ListRoomsRequest())
-            now = time.time()
             live_participants_by_room = {}
             live_roles_by_room = {}
             joined_at_by_room = {}
@@ -259,46 +298,30 @@ async def _sweep_inactive_participants():
                     if joined_at is not None:
                         joined_at_values[identity] = joined_at
 
-                    latest = await telemetry_col.find_one(
-                        {"room_name": room.name, "participant": identity},
-                        {"_id": 0, "inserted_at": 1, "server_ts": 1, "ts": 1,
-                         "telemetry.role": 1},
-                        sort=[("inserted_at", -1), ("server_ts", -1)],
-                    )
-                    if latest:
-                        role = str(
-                            (latest.get("telemetry") or {}).get("role", "trainee")
-                        ).strip().casefold()
-                        telemetry_activity = _telemetry_activity_at(latest)
-                        if (role in RECORDING_ROLES or role == "observer") and (
-                                joined_at is None or telemetry_activity is None
-                                or telemetry_activity >= joined_at):
-                            live_roles[identity] = role
-                    else:
-                        role = None
-                        telemetry_activity = None
-
-                    if role != "trainee":
-                        continue
-
-                    activity_times = [
-                        activity for activity in (
-                            telemetry_activity, joined_at)
-                        if activity is not None
-                    ]
-                    if (not activity_times
-                            or now - max(activity_times) < TELEMETRY_IDLE_TIMEOUT):
-                        continue
-
-                    log.warning(
-                        "Expelling inactive trainee %s from room %s "
-                        "(no telemetry for at least %ss)",
-                        identity, room.name, TELEMETRY_IDLE_TIMEOUT,
-                    )
-                    await lk.room.remove_participant(
-                        proto_room.RoomParticipantIdentity(
-                            room=room.name, identity=identity))
-                    live_participants.discard(identity)
+                    role = _role_from_metadata(getattr(participant, "metadata", None))
+                    if not role:
+                        base_uid = identity.split(":", 1)[0]
+                        latest = await telemetry_col.find_one(
+                            {
+                                "room_name": room.name,
+                                "participant": {"$in": list({identity, base_uid})},
+                            },
+                            {"_id": 0, "inserted_at": 1, "server_ts": 1, "ts": 1,
+                             "telemetry.role": 1},
+                            sort=[("inserted_at", -1), ("server_ts", -1)],
+                        )
+                        if latest:
+                            cand_role = _normalize_role(
+                                (latest.get("telemetry") or {}).get("role", "trainee")
+                            )
+                            telemetry_activity = _telemetry_activity_at(latest)
+                            if cand_role and (
+                                    joined_at is None or telemetry_activity is None
+                                    or telemetry_activity >= joined_at):
+                                role = cand_role
+                    if not role:
+                        role = state["roles"].get(identity) or "trainee"
+                    live_roles[identity] = role
 
                 live_roles_by_room[room.name] = live_roles
                 joined_at_by_room[room.name] = joined_at_values
@@ -385,7 +408,8 @@ def _room(name: str) -> dict:
 
 
 def _is_internal(identity: str) -> bool:
-    return str(identity or "").strip().casefold() in INTERNAL_IDENTITIES
+    norm = str(identity or "").strip().casefold()
+    return norm in INTERNAL_IDENTITIES or norm.startswith("eg_")
 
 
 def _count(room_name: str) -> int:
@@ -400,32 +424,43 @@ def _count(room_name: str) -> int:
     )
 
 
-async def _refresh_participant_role(room_name: str, identity: str):
+async def _refresh_participant_role(
+    room_name: str, identity: str, metadata: str | None = None
+):
     if _is_internal(identity):
         return
 
     state = _room(room_name)
+    meta_role = _role_from_metadata(metadata)
+    if meta_role in RECORDING_ROLES or meta_role == "observer":
+        state["roles"][identity] = meta_role
+        return
+
     joined_at = state["joined_at"].get(identity)
+    base_uid = identity.split(":", 1)[0]
     latest = await telemetry_col.find_one(
-        {"room_name": room_name, "participant": identity},
+        {
+            "room_name": room_name,
+            "participant": {"$in": list({identity, base_uid})},
+        },
         {"_id": 0, "inserted_at": 1, "server_ts": 1, "ts": 1,
          "telemetry.role": 1},
         sort=[("inserted_at", -1), ("server_ts", -1)],
     )
     if not latest:
-        state["roles"].pop(identity, None)
+        state["roles"][identity] = state["roles"].get(identity) or "trainee"
         return
 
     activity = _telemetry_activity_at(latest)
     if joined_at is not None and (activity is None or activity < joined_at):
-        state["roles"].pop(identity, None)
+        state["roles"][identity] = state["roles"].get(identity) or "trainee"
         return
 
-    role = str((latest.get("telemetry") or {}).get("role") or "").strip().casefold()
+    role = _normalize_role((latest.get("telemetry") or {}).get("role"))
     if role in RECORDING_ROLES or role == "observer":
         state["roles"][identity] = role
     else:
-        state["roles"].pop(identity, None)
+        state["roles"][identity] = "trainee"
 
 
 def _status(code) -> str:
@@ -642,7 +677,7 @@ async def handle_joined(event: dict):
     state["joined_at"][identity] = time.time()
     state["roles"].pop(identity, None)
     if not _is_internal(identity):
-        await _refresh_participant_role(room_name, identity)
+        await _refresh_participant_role(room_name, identity, p.get("metadata"))
     count = _count(room_name)
     log.info(
         "👤 Rejoint | %s | %s coach/trainee user(s) in '%s'",
@@ -712,16 +747,15 @@ async def handle_egress_started(event: dict):
         )
     except (TypeError, ValueError, OverflowError, OSError):
         started_at = datetime.now(UTC)
-    stop_deadline_at = started_at + timedelta(
-        seconds=RECORDING_MAX_DURATION_SECONDS
-    )
+    max_dur = await _get_max_recording_seconds(room_name)
+    stop_deadline_at = started_at + timedelta(seconds=max_dur)
     _room(room_name)["egress_ids"].add(egress_id)
     await col.update_one({"egress_id": egress_id}, {"$set": {
         "egress_id": egress_id, "room_name": room_name,
         "status": "recording",
         "started_at": started_at.isoformat(),
         "stop_deadline_at": stop_deadline_at,
-        "max_duration_seconds": RECORDING_MAX_DURATION_SECONDS,
+        "max_duration_seconds": max_dur,
         "files": [],
     }}, upsert=True)
     await rooms_col.update_one(
@@ -755,13 +789,31 @@ async def handle_egress_ended(event: dict):
     _room(room_name)["egress_ids"].discard(egress_id)
 
     file_results = eg.get("fileResults", [])
-    files = [{
-        "filename":   f.get("filename", ""),
-        "size_bytes": f.get("size", 0),
-        "size_mb":    round(f.get("size", 0) / (1024*1024), 2),
-        "duration_s": f.get("duration", 0),
-        "minio_url":  f"{MINIO_PUBLIC_URL}/{REC_BUCKET}/{f.get('filename','')}",
-    } for f in file_results]
+    files = []
+    for f in file_results:
+        fname = f.get("filename", "")
+        try:
+            fsize = int(f.get("size", 0) or 0)
+        except (TypeError, ValueError):
+            fsize = 0
+        raw_dur = f.get("duration", 0) or 0
+        try:
+            dur_s = float(raw_dur)
+            if dur_s > 100_000_000:
+                dur_s = round(dur_s / 1_000_000_000, 2)
+        except (TypeError, ValueError):
+            dur_s = 0.0
+        furl = f"{MINIO_PUBLIC_URL}/{REC_BUCKET}/{str(fname).lstrip('/')}"
+        files.append({
+            "filename":   fname,
+            "size":       fsize,
+            "size_bytes": fsize,
+            "size_mb":    round(fsize / (1024 * 1024), 2),
+            "duration":   dur_s,
+            "duration_s": dur_s,
+            "url":        furl,
+            "minio_url":  furl,
+        })
 
     duration_s = max((f["duration_s"] for f in files), default=None)
 
@@ -809,6 +861,16 @@ async def handle_room_started(event: dict):
     state["roles"].clear()
     state["joined_at"].clear()
     await _persist_room(name)
+    if r and name:
+        try:
+            await r.publish("room:events", json.dumps({
+                "event": "room_started",
+                "type": "room_started",
+                "room_name": name,
+                "timestamp": time.time(),
+            }))
+        except Exception as e:
+            log.error(f"❌ Erreur publication Redis room_started pour '{name}': {e}")
 
 
 async def handle_room_finished(event: dict):
@@ -823,6 +885,16 @@ async def handle_room_finished(event: dict):
     st["roles"].clear()
     st["joined_at"].clear()
     await _persist_room(name, finished=True)
+    if r and name:
+        try:
+            await r.publish("room:events", json.dumps({
+                "event": "room_finished",
+                "type": "room_finished",
+                "room_name": name,
+                "timestamp": time.time(),
+            }))
+        except Exception as e:
+            log.error(f"❌ Erreur publication Redis room_finished pour '{name}': {e}")
 
 
 # ── REST ───────────────────────────────────────────────────────────────────────

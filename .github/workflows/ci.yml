@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r mongo-writer/requirements-api.txt -r mongo-writer/requirements-dev.txt
+          pip install ruff==0.8.6
+      - name: Lint with ruff
+        run: ruff check mongo-writer/api.py mongo-writer/core_config.py mongo-writer/storage.py mongo-writer/worker mongo-writer/routers/live_token.py mongo-writer/routers/live_rooms.py mongo-writer/routers/recordings.py mongo-writer/routers/admin_ops.py
+      - name: Run pytest
+        run: pytest mongo-writer/tests telemetry-agent/tests -v
+
+  backoffice:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backoffice
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backoffice/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build

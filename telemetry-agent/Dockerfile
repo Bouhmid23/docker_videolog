@@ -7,7 +7,9 @@ RUN pip install --no-cache-dir \
     livekit-api==0.6.0 \
     redis==5.0.1 \
     asyncio-mqtt==0.16.2 \
-    python-dotenv==1.0.0
+    python-dotenv==1.0.0 \
+    motor==3.3.2 \
+    pymongo==4.6.0
 
 COPY agent.py .
 

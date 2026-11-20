@@ -4,14 +4,15 @@ Ce document décrit l'authentification mobile Firebase, le contrôle d'enregistr
 
 ## URLs de production
 
-| Usage | URL |
-|---|---|
-| API mobile | `https://api.videolog.app` |
-| Connexion LiveKit | `wss://livekit.videolog.app` |
-| Dashboard opérateur | `https://dashboard.videolog.app` |
-| Fichiers MinIO | `https://minio.videolog.app` |
+| Usage | Production | Développement local |
+|---|---|---|
+| API mobile & Back-office (`/v1/*`, `/token`, `/mobile/*`) | `https://api.videolog.app` | `http://10.0.2.2:8001` (émulateur Android) / `http://localhost:8001` |
+| Back-office Web | `https://app.videolog.app` *(ou domaine configuré)* | `http://localhost:3001` |
+| Connexion LiveKit | `wss://livekit.videolog.app` | `ws://10.0.2.2:7880` / `ws://localhost:7880` |
+| Dashboard opérateur (legacy) | `https://dashboard.videolog.app` | — |
+| Fichiers MinIO | `https://minio.videolog.app` | — |
 
-Le dashboard utilise HTTP Basic. L'API mobile utilise un Firebase ID token en `Authorization: Bearer`; ne mettez jamais les identifiants Basic ou les secrets serveur dans l'application.
+Le dashboard opérateur legacy utilise HTTP Basic. L'API mobile et le back-office utilisent un Firebase ID token en `Authorization: Bearer <id_token>` ; ne mettez jamais les identifiants Basic ou les secrets serveur dans l'application.
 
 `DOMAIN` vaut `videolog.app`. `LIVEKIT_PUBLIC_URL` doit être `wss://livekit.videolog.app` et `MINIO_PUBLIC_URL` `https://minio.videolog.app`. Le serveur renvoie l'URL LiveKit dans la réponse du token. Le client doit utiliser le champ `url` retourné, et ne pas conserver `ws://10.0.2.2:7880` : `10.0.2.2` ne désigne que l'hôte vu depuis un émulateur Android.
 
@@ -28,16 +29,12 @@ Le compte de service est utilisé uniquement côté backend pour vérifier les I
 
 ## Autorisation par session
 
-Pour ce POC, tout utilisateur Firebase authentifié peut lister les rooms non terminées et recevoir un token LiveKit pour rejoindre une room existante non terminée. Le token autorise actuellement la publication et la réception des pistes.
+L'accès aux sessions est isolé par organisation (`org_id`) et par liste de participants dans `videolog.room_state` :
 
-Pour ce POC, tout utilisateur authentifié peut aussi utiliser les contrôles Egress d'une room active. En production, rétablir le contrôle fondé sur les champs et claims suivants dans `videolog.room_state` :
-
-- `owner_uid`: UID Firebase propriétaire ;
-- `recording_operator_uids`: tableau des UID autorisés à contrôler Egress ;
-- `participant_uids`: UID participants conservés pour le contrôle métier ;
-- `recording_admin: true`: custom claim Firebase réservé aux administrateurs de confiance, avec accès à toutes les sessions.
-
-Pour les sessions existantes, un administrateur peut affecter les UID via un processus d'administration sûr. N'acceptez jamais ces UID depuis une requête mobile non autorisée. Le token LiveKit utilise l'UID Firebase vérifié comme identité et expire après dix minutes.
+- Un utilisateur authentifié ne voit dans `GET /mobile/rooms` et ne peut rejoindre via `POST /token` que les sessions actives de son organisation auxquelles il participe (ou qu'il encadre en tant que coach/admin/owner).
+- Le champ `can_control_recording` reflète les droits réels : `true` pour l'`owner` ou `admin` de l'organisation, ou le `coach` propriétaire/opérateur de la session ; `false` pour un `athlete` (les appels start/stop renvoient `403`).
+- Les anciennes rooms sans `org_id` sont refusées par défaut (`403`), sauf si `LEGACY_OPEN_ROOMS=true` est activé pour une phase de transition ou si elles sont rattachées via `scripts/attach_legacy_rooms.py`.
+- Le token LiveKit utilise l'UID Firebase comme `identity`, le nom complet comme `name` et inclut `{role, org_id}` dans `metadata` ; il expire après dix minutes.
 
 ## Parcours de connexion
 
@@ -52,7 +49,7 @@ Le endpoint `POST /rooms` existant reste une route d'administration. Il ne doit 
 
 ### Lister les rooms disponibles sur mobile
 
-L'application peut appeler `GET /mobile/rooms` avec le Firebase ID token en Bearer. Pour ce POC, tout utilisateur authentifié peut voir toutes les rooms non terminées et le champ `can_control_recording` vaut toujours `true` pour l'interface. Les endpoints qui démarrent ou arrêtent réellement Egress vérifient encore les autorisations dans MongoDB. En production, rétablir pour ce champ la règle fondée sur `recording_admin`, `owner_uid` et `recording_operator_uids`. Le paramètre `limit` vaut 50 par défaut et accepte de 1 à 100.
+L'application appelle `GET /mobile/rooms` avec le Firebase ID token en Bearer. Le backend retourne uniquement les rooms actives (non terminées) de l'organisation de l'utilisateur auxquelles il participe (ou qu'il encadre en tant que `coach` / `admin` / `owner`). Le champ `can_control_recording` vaut `true` uniquement pour les utilisateurs habilités (`owner`, `admin`, `coach` propriétaire ou opérateur, ou `recording_admin`), et `false` pour un `athlete`. Le paramètre `limit` vaut 50 par défaut et accepte de 1 à 100.
 
 Voir le [workflow mobile complet](./MOBILE_RECORDING_WORKFLOW.md) pour l'exemple Flutter et le détail de la réponse.
 
@@ -225,7 +222,26 @@ Le serveur accepte la version 2, d'une longueur de 21 octets, en big-endian. Env
 
 Dans Dart, préciser `Endian.big` sur chaque lecture/écriture `ByteData` rend le contrat explicite. La vitesse envoyée par l'exemple mobile est en km/h (`position.speed * 3.6`) ; le commentaire historique « cm/s » ne correspond pas à l'échelle réellement encodée. La latitude/longitude utilisent un facteur `10^7` (sept décimales), malgré le commentaire historique parlant de huit décimales.
 
-**Limite connue du bearing v2 :** le champ ne fait qu'un octet et `255` signifie null. Avec l'encodeur actuel qui borne d'abord à 360 puis à 255, les valeurs de 255 à 360 sont donc décodées comme null. Pour le contrat actuel, envoyer un bearing de 0 à 254 ou null. Représenter correctement 0 à 359 nécessite une nouvelle version de paquet, partagée par le mobile et le serveur ; ne changez pas ce champ silencieusement.
+**Limite connue du bearing v2 :** le champ ne fait qu'un octet et `255` signifie null. Avec l'encodeur actuel qui borne d'abord à 360 puis à 255, les valeurs de 255 à 360 sont donc décodées comme null. Pour le contrat actuel v2, envoyer un bearing de 0 à 254 ou null.
+
+### Paquet binaire v3 (25 octets, big-endian — Phase 1)
+
+Le serveur accepte également la **version 3** (25 octets, big-endian), rétrocompatible avec la v2, qui ajoute la **puissance (`power_w`)** et corrige le champ `bearing` sur `uint16` :
+
+| Offset | Taille | Type | Champ | Encodage / valeur nulle |
+|---:|---:|---|---|---|
+| 0 | 1 | `uint8` | version | `3` |
+| 1 | 1 | `uint8` | rôle | `0=coach`, `1=trainee`, `2=observer` |
+| 2 | 2 | `uint16` | vitesse | km/h × 100 ; `65535` = null |
+| 4 | 1 | `uint8` | fréquence cardiaque | bpm ; `255` = null |
+| 5 | 1 | `uint8` | cadence | rpm ; `255` = null |
+| 6 | 4 | `int32` | latitude | degrés × 10 000 000 ; `0x7FFFFFFF` = null |
+| 10 | 4 | `int32` | longitude | degrés × 10 000 000 ; `0x7FFFFFFF` = null |
+| 14 | 2 | `int16` | altitude | mètres × 100 ; `0x7FFF` = null |
+| 16 | 2 | `uint16` | bearing | degrés `0..359` ; `65535` = null |
+| 18 | 2 | `uint16` | puissance (`power_w`) | watts ; `65535` = null |
+| 20 | 4 | `uint32` | timestamp de capture | millisecondes Unix modulo `2^32` |
+| 24 | 1 | `uint8` | flags | réservé (`0`) |
 
 ### Timestamp et synchronisation vidéo
 
@@ -250,3 +266,95 @@ Pour la relecture, l'API calcule `video_ms` par rapport à l'heure de début du 
 5. Tester les champs nuls et les coordonnées négatives ; vérifier que le décodage restitue les unités et signes attendus.
 
 Le test `GET /token` doit répondre `405` car la route accepte `POST` uniquement. Un ID token absent ou invalide doit recevoir `401`; une room absente ou terminée doit recevoir `404`. En mode `automatic`, les routes mobiles de contrôle Egress doivent répondre `409`.
+
+
+---
+
+## Nouveautés Back-office v1 & Phase 2 à intégrer dans le mobile
+
+### 1. Authentification (Email/Mot de passe & Google Sign-In)
+- Le backend accepte les tokens Firebase issus d'**Email/Password** et de **Google Sign-In** (`signInWithCredential`).
+- **Vérification d'e-mail** : les comptes créés par e-mail/mot de passe doivent avoir `emailVerified == true` pour appeler `POST /v1/me/onboarding` ou `POST /v1/invitations/{token}/accept` (sinon `403`). En Flutter : `await user.sendEmailVerification()`, puis `await user.reload()` et `await user.getIdToken(true)` après validation.
+
+### 2. Profil compte, Onboarding & Invitations (`/v1/me`, `/v1/invitations`)
+Après connexion Firebase, l'application mobile doit appeler :
+
+```http
+GET /v1/me
+Authorization: Bearer <Firebase ID token>
+```
+
+La réponse contient :
+- `user` : profil utilisateur (`uid`, `email`, `first_name`, `last_name`, `athlete_profile`, `health_consent`, etc.)
+- `memberships` : liste des organisations dont l'utilisateur est membre (`org_id`, `role` parmi `owner | admin | coach | athlete`, `organization: { id, name, type }`).
+
+**Cas à gérer côté mobile :**
+- **Utilisateur sans membership** :
+  - S'il arrive via un **lien d'invitation** (`/invite/<token>`), appeler `GET /v1/invitations/{token}` pour afficher le club/coach invitant, puis `POST /v1/invitations/{token}/accept`.
+  - Sinon, rediriger vers un écran d'onboarding ou lui indiquer de créer son espace (club ou coach privé) via `POST /v1/me/onboarding` (ou via le back-office Web).
+- **Utilisateur avec plusieurs organisations** : conserver l'`org_id` actif dans l'état de l'application (ou sélecteur d'organisation) pour les appels `/v1/orgs/{org_id}/...`.
+
+### 3. Profil sportif, Restriction 15 ans & Consentement santé RGPD
+Pour enregistrer ou mettre à jour le profil sportif d'un athlète (notamment pour activer les **seuils cardiaques personnalisés** dans `telemetry-agent`) :
+
+```http
+PUT /v1/me/athlete-profile
+Authorization: Bearer <Firebase ID token>
+Content-Type: application/json
+```
+
+Corps JSON :
+```json
+{
+  "sport": "cyclisme",
+  "level": "compétition régionale",
+  "birth_date": "2002-05-14",
+  "height_cm": 178,
+  "weight_kg": 72.5,
+  "hr_max": 188,
+  "hr_rest": 48,
+  "health_consent": true
+}
+```
+
+**Règles de validation serveur (`422` si non respectées) :**
+- `sport` : `"cyclisme"`, `"course à pied"`, `"triathlon"`, `"natation"`, `"aviron"`, `"football"`, `"rugby"`, `"autre"`.
+- `level` : `"loisir"`, `"compétition régionale"`, `"nationale"`, `"élite"`.
+- **Âge minimum (15 ans)** : `birth_date` doit correspondre à un âge `>= 15` ans (sinon refus `422`).
+- **Consentement santé RGPD explicite** : si `weight_kg`, `hr_max` ou `hr_rest` est renseigné, `health_consent` **doit** être `true`.
+- **Cohérence FC** : `hr_rest` doit être strictement inférieur à `hr_max`.
+- **Révocation** : l'utilisateur peut retirer son consentement à tout moment via `DELETE /v1/me/health-consent` (ce qui purge les données de santé associées et repasse les alertes sur les seuils par défaut).
+
+**Impact temps réel côté `telemetry-agent` :**
+- Dès qu'une room démarre (`room_started` publié sur Redis `room:events`), `telemetry-agent` rejoint automatiquement la room et évalue les alertes cardiaques avec `hr_max` / `hr_rest` de l'athlète **uniquement si `health_consent.granted == true`** (sinon repli sur `ALERT_HR_MAX=185` et `ALERT_HR_REST=50`).
+
+### 4. Création de séance & Relecture / Exploitation (`/v1/orgs/{org_id}/sessions`)
+- **Lister les sessions** : `GET /v1/orgs/{org_id}/sessions`
+- **Créer une session** (`owner | admin | coach`) : `POST /v1/orgs/{org_id}/sessions` avec `{ "title": "...", "group_id": null, "participant_uids": ["..."] }`
+- **Détail d'une session + URLs vidéo signées** :
+  ```http
+  GET /v1/orgs/{org_id}/sessions/{room_name}
+  Authorization: Bearer <Firebase ID token>
+  ```
+  Retourne `room`, `participants` (nom, e-mail, rôle) et `recordings` contenant des URLs MP4 présignées MinIO **valables 1 heure** (rafraîchir l'appel si la lecture reprend après expiration).
+- **Télémétrie & Alertes de la séance** :
+  - `GET /v1/orgs/{org_id}/sessions/{room_name}/telemetry`
+  - `GET /v1/orgs/{org_id}/sessions/{room_name}/alerts`
+  *(Filtrage RGPD automatique : un `athlete` ne reçoit que ses propres points de télémétrie et alertes.)*
+- **Marqueurs coach** :
+  - Lecture (coach + athlètes participants) : `GET /v1/orgs/{org_id}/sessions/{room_name}/markers`
+  - Création (`owner | admin | coach` uniquement, `403` pour un athlète) : `POST /v1/orgs/{org_id}/sessions/{room_name}/markers` avec `{ "pts_ms": 12500, "label": "Relance côte", "note": "...", "category": "technique" }`
+  - Suppression (`owner | admin | coach`) : `DELETE /v1/orgs/{org_id}/sessions/{room_name}/markers/{marker_id}`
+
+### 5. Charte graphique VideoLog (alignement UI mobile / web)
+Pour garder une identité visuelle homogène avec le back-office et `vroom.videolog.app` :
+- **Couleurs** :
+  - Fond principal : `#090B0E` / `#0F1318`
+  - Cartes / panneaux : `#151A21` (bordure `#232B35`)
+  - Texte principal / secondaire : `#EEF2F6` / `#98A3B0`
+  - Accent principal (Cyan VideoLog) : `#18ABF8` (secondaire `#3A8FD6`)
+  - Succès / Live OK : `#3DDC97`
+  - Enregistrement / Alerte critique : `#E5373A`
+- **Typographies** :
+  - Titres / KPIs : `TradeGothicBold` (fichier disponible dans `backoffice/public/fonts/TradeGothicBold.ttf`)
+  - Corps de texte : `Montserrat`
